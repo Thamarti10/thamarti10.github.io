@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Streak Analyzer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:#060e1a;color:#f1f5f9;font-family:'Courier New',monospace;min-height:100vh}
+  button,label{cursor:pointer;font-family:'Courier New',monospace}
+  input{font-family:'Courier New',monospace}
+  ::-webkit-scrollbar{width:4px;height:4px}
+  ::-webkit-scrollbar-track{background:#0a1624}
+  ::-webkit-scrollbar-thumb{background:#1e3a5f;border-radius:2px}
+  .dot{width:24px;height:24px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;
+       font-size:9px;font-weight:800;color:#fff;flex-shrink:0;cursor:default}
+  .dot-V{background:#16a34a} .dot-E{background:#d97706} .dot-D{background:#dc2626}
+  .dot-home{border:2px solid rgba(255,255,255,0.45)} .dot-away{border:2px solid transparent}
+  .team-row{padding:10px 14px;cursor:pointer;border-bottom:1px solid #0a1421;
+             display:flex;align-items:center;justify-content:space-between;transition:background 0.12s}
+  .team-row:hover{background:#0a1e2e}
+  .team-row.active{background:#0e2d4d}
+  .tab-btn{border-radius:7px;padding:6px 14px;font-size:11px;font-weight:700;border-width:1px;border-style:solid}
+  .tab-btn.active{background:#1e4d7b;border-color:#2563eb;color:#bfdbfe}
+  .tab-btn.inactive{background:transparent;border-color:#1e3a5f;color:#4a7aa7}
+  .stat-row{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid #1e293b}
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:999;
+                  display:flex;align-items:center;justify-content:center;padding:16px}
+  .modal-box{background:#0c1827;border:1px solid #1e3a5f;border-radius:16px;padding:20px;
+              max-width:560px;width:100%;max-height:85vh;overflow-y:auto;
+              box-shadow:0 24px 60px rgba(0,0,0,0.7)}
+  @media(max-width:640px){
+    .hide-mobile{display:none!important}
+    .header-btns{gap:4px}
+    .header-btn-text{display:none}
+    .grid-main{grid-template-columns:1fr!important}
+    .detail-panel{margin-top:0}
+  }
+  @media(min-width:641px){
+    .show-mobile-only{display:none!important}
+  }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+// ── dados default ─────────────────────────────────────────────────────────────
+const DEFAULT_SCHEDULE = [{"rodada":13,"casa":"Equador","fora":"México","golsCasa":1,"golsFora":1},{"rodada":13,"casa":"Países Baixos","fora":"Dinamarca","golsCasa":0,"golsFora":2},{"rodada":13,"casa":"Japão","fora":"México","golsCasa":1,"golsFora":2},{"rodada":13,"casa":"Alemanha","fora":"Marrocos","golsCasa":3,"golsFora":0},{"rodada":13,"casa":"Arábia Saudita","fora":"Austrália","golsCasa":0,"golsFora":0},{"rodada":13,"casa":"Croácia","fora":"Marrocos","golsCasa":1,"golsFora":1},{"rodada":13,"casa":"Arábia Saudita","fora":"Alemanha","golsCasa":0,"golsFora":0},{"rodada":13,"casa":"Qatar","fora":"Bélgica","golsCasa":0,"golsFora":2},{"rodada":13,"casa":"Uruguai","fora":"Canadá","golsCasa":1,"golsFora":4},{"rodada":13,"casa":"Austrália","fora":"EUA","golsCasa":0,"golsFora":0},{"rodada":13,"casa":"Gana","fora":"Inglaterra","golsCasa":1,"golsFora":1},{"rodada":13,"casa":"França","fora":"EUA","golsCasa":0,"golsFora":2},{"rodada":13,"casa":"Irã","fora":"Portugal","golsCasa":0,"golsFora":4},{"rodada":13,"casa":"Japão","fora":"Espanha","golsCasa":1,"golsFora":3},{"rodada":13,"casa":"Polônia","fora":"Países Baixos","golsCasa":0,"golsFora":2},{"rodada":13,"casa":"Marrocos","fora":"Irã","golsCasa":1,"golsFora":2},{"rodada":13,"casa":"Uruguai","fora":"Coreia do Sul","golsCasa":1,"golsFora":0},{"rodada":13,"casa":"Austrália","fora":"México","golsCasa":0,"golsFora":1},{"rodada":13,"casa":"Países Baixos","fora":"Portugal","golsCasa":0,"golsFora":0},{"rodada":13,"casa":"Camarões","fora":"Canadá","golsCasa":0,"golsFora":3},{"rodada":12,"casa":"Dinamarca","fora":"França","golsCasa":2,"golsFora":1},{"rodada":12,"casa":"Equador","fora":"Japão","golsCasa":5,"golsFora":1},{"rodada":12,"casa":"EUA","fora":"Sérvia","golsCasa":1,"golsFora":1},{"rodada":12,"casa":"Tunísia","fora":"Inglaterra","golsCasa":0,"golsFora":3},{"rodada":12,"casa":"Uruguai","fora":"País de Gales","golsCasa":1,"golsFora":0},{"rodada":12,"casa":"Costa Rica","fora":"Polônia","golsCasa":2,"golsFora":3},{"rodada":12,"casa":"Argentina","fora":"Bélgica","golsCasa":3,"golsFora":0},{"rodada":12,"casa":"França","fora":"Senegal","golsCasa":3,"golsFora":1},{"rodada":12,"casa":"Polônia","fora":"Alemanha","golsCasa":1,"golsFora":1},{"rodada":12,"casa":"Bélgica","fora":"Portugal","golsCasa":0,"golsFora":1},{"rodada":12,"casa":"Marrocos","fora":"Argentina","golsCasa":1,"golsFora":0},{"rodada":12,"casa":"Inglaterra","fora":"Bélgica","golsCasa":1,"golsFora":0},{"rodada":12,"casa":"EUA","fora":"Uruguai","golsCasa":1,"golsFora":2},{"rodada":12,"casa":"Polônia","fora":"Dinamarca","golsCasa":2,"golsFora":1},{"rodada":12,"casa":"Inglaterra","fora":"Japão","golsCasa":0,"golsFora":1},{"rodada":12,"casa":"Tunísia","fora":"Senegal","golsCasa":1,"golsFora":0},{"rodada":12,"casa":"Qatar","fora":"Equador","golsCasa":0,"golsFora":0},{"rodada":12,"casa":"Alemanha","fora":"Países Baixos","golsCasa":1,"golsFora":1},{"rodada":12,"casa":"Gana","fora":"Costa Rica","golsCasa":1,"golsFora":0},{"rodada":12,"casa":"Bélgica","fora":"Dinamarca","golsCasa":0,"golsFora":2},{"rodada":11,"casa":"Países Baixos","fora":"Bélgica","golsCasa":2,"golsFora":2},{"rodada":11,"casa":"Argentina","fora":"País de Gales","golsCasa":0,"golsFora":0},{"rodada":11,"casa":"Senegal","fora":"Qatar","golsCasa":1,"golsFora":1},{"rodada":11,"casa":"País de Gales","fora":"EUA","golsCasa":1,"golsFora":2},{"rodada":11,"casa":"Canadá","fora":"Polônia","golsCasa":1,"golsFora":0},{"rodada":11,"casa":"País de Gales","fora":"Croácia","golsCasa":0,"golsFora":1},{"rodada":11,"casa":"Dinamarca","fora":"Uruguai","golsCasa":2,"golsFora":1},{"rodada":11,"casa":"França","fora":"Coreia do Sul","golsCasa":0,"golsFora":2},{"rodada":11,"casa":"Marrocos","fora":"Costa Rica","golsCasa":0,"golsFora":2},{"rodada":11,"casa":"Irã","fora":"Coreia do Sul","golsCasa":2,"golsFora":1},{"rodada":11,"casa":"Bélgica","fora":"Uruguai","golsCasa":2,"golsFora":2},{"rodada":11,"casa":"País de Gales","fora":"Senegal","golsCasa":1,"golsFora":0},{"rodada":11,"casa":"Inglaterra","fora":"Croácia","golsCasa":0,"golsFora":2},{"rodada":11,"casa":"Arábia Saudita","fora":"Portugal","golsCasa":2,"golsFora":2},{"rodada":11,"casa":"França","fora":"Bélgica","golsCasa":0,"golsFora":2},{"rodada":11,"casa":"Senegal","fora":"Tunísia","golsCasa":1,"golsFora":1},{"rodada":11,"casa":"Bélgica","fora":"Coreia do Sul","golsCasa":1,"golsFora":0},{"rodada":11,"casa":"Sérvia","fora":"Tunísia","golsCasa":0,"golsFora":2},{"rodada":11,"casa":"País de Gales","fora":"Marrocos","golsCasa":1,"golsFora":0},{"rodada":11,"casa":"Uruguai","fora":"Portugal","golsCasa":1,"golsFora":3},{"rodada":10,"casa":"Inglaterra","fora":"Alemanha","golsCasa":1,"golsFora":0},{"rodada":10,"casa":"Uruguai","fora":"Irã","golsCasa":0,"golsFora":0},{"rodada":10,"casa":"Qatar","fora":"País de Gales","golsCasa":0,"golsFora":1},{"rodada":10,"casa":"Suíça","fora":"Uruguai","golsCasa":1,"golsFora":0},{"rodada":10,"casa":"Dinamarca","fora":"Espanha","golsCasa":0,"golsFora":1},{"rodada":10,"casa":"Polônia","fora":"Portugal","golsCasa":2,"golsFora":1},{"rodada":10,"casa":"Bélgica","fora":"Austrália","golsCasa":1,"golsFora":2},{"rodada":10,"casa":"Portugal","fora":"Irã","golsCasa":3,"golsFora":1},{"rodada":10,"casa":"EUA","fora":"Suíça","golsCasa":1,"golsFora":1},{"rodada":10,"casa":"Gana","fora":"Equador","golsCasa":1,"golsFora":4},{"rodada":10,"casa":"Senegal","fora":"Sérvia","golsCasa":1,"golsFora":1},{"rodada":10,"casa":"Qatar","fora":"Arábia Saudita","golsCasa":2,"golsFora":0},{"rodada":10,"casa":"Dinamarca","fora":"Inglaterra","golsCasa":1,"golsFora":0},{"rodada":10,"casa":"Camarões","fora":"Qatar","golsCasa":1,"golsFora":2},{"rodada":10,"casa":"Dinamarca","fora":"Argentina","golsCasa":1,"golsFora":2},{"rodada":10,"casa":"Austrália","fora":"Tunísia","golsCasa":2,"golsFora":0},{"rodada":10,"casa":"Marrocos","fora":"País de Gales","golsCasa":0,"golsFora":1},{"rodada":10,"casa":"França","fora":"Países Baixos","golsCasa":0,"golsFora":3},{"rodada":10,"casa":"Portugal","fora":"País de Gales","golsCasa":2,"golsFora":0},{"rodada":10,"casa":"Irã","fora":"Austrália","golsCasa":1,"golsFora":1},{"rodada":9,"casa":"México","fora":"Polônia","golsCasa":1,"golsFora":1},{"rodada":9,"casa":"Espanha","fora":"Japão","golsCasa":0,"golsFora":1},{"rodada":9,"casa":"País de Gales","fora":"Costa Rica","golsCasa":2,"golsFora":1},{"rodada":9,"casa":"Irã","fora":"Camarões","golsCasa":2,"golsFora":1},{"rodada":9,"casa":"Espanha","fora":"Sérvia","golsCasa":1,"golsFora":3},{"rodada":9,"casa":"França","fora":"Canadá","golsCasa":1,"golsFora":2},{"rodada":9,"casa":"Austrália","fora":"Croácia","golsCasa":2,"golsFora":3},{"rodada":9,"casa":"Alemanha","fora":"Japão","golsCasa":0,"golsFora":1},{"rodada":9,"casa":"Croácia","fora":"Coreia do Sul","golsCasa":3,"golsFora":1},{"rodada":9,"casa":"Uruguai","fora":"Alemanha","golsCasa":1,"golsFora":2},{"rodada":9,"casa":"Austrália","fora":"País de Gales","golsCasa":0,"golsFora":1},{"rodada":9,"casa":"Marrocos","fora":"França","golsCasa":0,"golsFora":5},{"rodada":9,"casa":"Dinamarca","fora":"Camarões","golsCasa":4,"golsFora":0},{"rodada":9,"casa":"Qatar","fora":"Espanha","golsCasa":1,"golsFora":0},{"rodada":9,"casa":"Argentina","fora":"Camarões","golsCasa":3,"golsFora":1},{"rodada":9,"casa":"Suíça","fora":"Costa Rica","golsCasa":3,"golsFora":0},{"rodada":9,"casa":"Gana","fora":"Portugal","golsCasa":0,"golsFora":2},{"rodada":9,"casa":"Brasil","fora":"França","golsCasa":3,"golsFora":1},{"rodada":9,"casa":"Equador","fora":"Países Baixos","golsCasa":3,"golsFora":1},{"rodada":9,"casa":"México","fora":"Austrália","golsCasa":0,"golsFora":1},{"rodada":8,"casa":"Países Baixos","fora":"Senegal","golsCasa":4,"golsFora":3},{"rodada":8,"casa":"Uruguai","fora":"Arábia Saudita","golsCasa":1,"golsFora":1},{"rodada":8,"casa":"Suíça","fora":"EUA","golsCasa":3,"golsFora":2},{"rodada":8,"casa":"Tunísia","fora":"México","golsCasa":0,"golsFora":0},{"rodada":8,"casa":"Equador","fora":"EUA","golsCasa":1,"golsFora":0},{"rodada":8,"casa":"Japão","fora":"Alemanha","golsCasa":0,"golsFora":4},{"rodada":8,"casa":"Argentina","fora":"Costa Rica","golsCasa":0,"golsFora":0},{"rodada":8,"casa":"EUA","fora":"Irã","golsCasa":1,"golsFora":1},{"rodada":8,"casa":"Espanha","fora":"Qatar","golsCasa":0,"golsFora":1},{"rodada":8,"casa":"Costa Rica","fora":"Irã","golsCasa":1,"golsFora":1},{"rodada":8,"casa":"Uruguai","fora":"Países Baixos","golsCasa":0,"golsFora":1},{"rodada":8,"casa":"Coreia do Sul","fora":"Suíça","golsCasa":2,"golsFora":2},{"rodada":8,"casa":"Qatar","fora":"Polônia","golsCasa":0,"golsFora":2},{"rodada":8,"casa":"França","fora":"Brasil","golsCasa":0,"golsFora":0},{"rodada":8,"casa":"Camarões","fora":"Austrália","golsCasa":0,"golsFora":2},{"rodada":8,"casa":"Gana","fora":"França","golsCasa":0,"golsFora":2},{"rodada":8,"casa":"Brasil","fora":"Suíça","golsCasa":2,"golsFora":1},{"rodada":8,"casa":"Irã","fora":"Países Baixos","golsCasa":3,"golsFora":1},{"rodada":8,"casa":"Equador","fora":"Uruguai","golsCasa":1,"golsFora":0},{"rodada":8,"casa":"Portugal","fora":"Sérvia","golsCasa":2,"golsFora":2},{"rodada":7,"casa":"Países Baixos","fora":"Inglaterra","golsCasa":0,"golsFora":0},{"rodada":7,"casa":"Camarões","fora":"Espanha","golsCasa":1,"golsFora":0},{"rodada":7,"casa":"Polônia","fora":"EUA","golsCasa":1,"golsFora":1},{"rodada":7,"casa":"França","fora":"Costa Rica","golsCasa":0,"golsFora":1},{"rodada":7,"casa":"Coreia do Sul","fora":"Países Baixos","golsCasa":1,"golsFora":1},{"rodada":7,"casa":"Portugal","fora":"Inglaterra","golsCasa":0,"golsFora":0},{"rodada":7,"casa":"Qatar","fora":"México","golsCasa":0,"golsFora":2},{"rodada":7,"casa":"Irã","fora":"Espanha","golsCasa":1,"golsFora":1},{"rodada":7,"casa":"Suíça","fora":"Senegal","golsCasa":2,"golsFora":0},{"rodada":7,"casa":"Camarões","fora":"Costa Rica","golsCasa":2,"golsFora":1},{"rodada":7,"casa":"Inglaterra","fora":"Países Baixos","golsCasa":1,"golsFora":1},{"rodada":7,"casa":"Qatar","fora":"Dinamarca","golsCasa":1,"golsFora":3},{"rodada":7,"casa":"Irã","fora":"Suíça","golsCasa":4,"golsFora":1},{"rodada":7,"casa":"Brasil","fora":"Costa Rica","golsCasa":0,"golsFora":2},{"rodada":7,"casa":"Arábia Saudita","fora":"Tunísia","golsCasa":2,"golsFora":0},{"rodada":7,"casa":"México","fora":"Japão","golsCasa":3,"golsFora":1},{"rodada":7,"casa":"EUA","fora":"Camarões","golsCasa":0,"golsFora":2},{"rodada":7,"casa":"Canadá","fora":"Irã","golsCasa":3,"golsFora":1},{"rodada":7,"casa":"Coreia do Sul","fora":"Brasil","golsCasa":1,"golsFora":0},{"rodada":7,"casa":"Gana","fora":"México","golsCasa":2,"golsFora":2},{"rodada":6,"casa":"Marrocos","fora":"Irã","golsCasa":1,"golsFora":0},{"rodada":6,"casa":"Espanha","fora":"Dinamarca","golsCasa":1,"golsFora":0},{"rodada":6,"casa":"EUA","fora":"Gana","golsCasa":1,"golsFora":2},{"rodada":6,"casa":"Senegal","fora":"Coreia do Sul","golsCasa":0,"golsFora":1},{"rodada":6,"casa":"México","fora":"Argentina","golsCasa":0,"golsFora":1},{"rodada":6,"casa":"Gana","fora":"Uruguai","golsCasa":2,"golsFora":2},{"rodada":6,"casa":"México","fora":"Marrocos","golsCasa":1,"golsFora":1},{"rodada":6,"casa":"Equador","fora":"Austrália","golsCasa":2,"golsFora":2},{"rodada":6,"casa":"Gana","fora":"EUA","golsCasa":0,"golsFora":2},{"rodada":6,"casa":"Suíça","fora":"Espanha","golsCasa":3,"golsFora":2},{"rodada":6,"casa":"Inglaterra","fora":"Brasil","golsCasa":2,"golsFora":1},{"rodada":6,"casa":"País de Gales","fora":"Suíça","golsCasa":1,"golsFora":0},{"rodada":6,"casa":"Japão","fora":"Gana","golsCasa":1,"golsFora":0},{"rodada":6,"casa":"Portugal","fora":"Alemanha","golsCasa":1,"golsFora":4},{"rodada":6,"casa":"Arábia Saudita","fora":"Espanha","golsCasa":1,"golsFora":3},{"rodada":6,"casa":"Sérvia","fora":"Argentina","golsCasa":0,"golsFora":4},{"rodada":6,"casa":"Marrocos","fora":"México","golsCasa":1,"golsFora":2},{"rodada":6,"casa":"Bélgica","fora":"EUA","golsCasa":0,"golsFora":0},{"rodada":6,"casa":"Croácia","fora":"Costa Rica","golsCasa":1,"golsFora":0},{"rodada":6,"casa":"Espanha","fora":"Portugal","golsCasa":1,"golsFora":2},{"rodada":5,"casa":"Dinamarca","fora":"Suíça","golsCasa":1,"golsFora":1},{"rodada":5,"casa":"Coreia do Sul","fora":"Camarões","golsCasa":1,"golsFora":1},{"rodada":5,"casa":"Senegal","fora":"Suíça","golsCasa":0,"golsFora":0},{"rodada":5,"casa":"Austrália","fora":"Arábia Saudita","golsCasa":1,"golsFora":4},{"rodada":5,"casa":"Croácia","fora":"Senegal","golsCasa":0,"golsFora":1},{"rodada":5,"casa":"Argentina","fora":"Espanha","golsCasa":1,"golsFora":3},{"rodada":5,"casa":"Senegal","fora":"México","golsCasa":2,"golsFora":0},{"rodada":5,"casa":"Polônia","fora":"Japão","golsCasa":5,"golsFora":1},{"rodada":5,"casa":"Arábia Saudita","fora":"Dinamarca","golsCasa":0,"golsFora":0},{"rodada":5,"casa":"Equador","fora":"Canadá","golsCasa":2,"golsFora":1},{"rodada":5,"casa":"México","fora":"EUA","golsCasa":0,"golsFora":5},{"rodada":5,"casa":"Coreia do Sul","fora":"Bélgica","golsCasa":1,"golsFora":1},{"rodada":5,"casa":"Gana","fora":"Dinamarca","golsCasa":0,"golsFora":2},{"rodada":5,"casa":"Argentina","fora":"Tunísia","golsCasa":2,"golsFora":1},{"rodada":5,"casa":"Equador","fora":"Senegal","golsCasa":1,"golsFora":1},{"rodada":5,"casa":"Gana","fora":"País de Gales","golsCasa":0,"golsFora":0},{"rodada":5,"casa":"Japão","fora":"Arábia Saudita","golsCasa":2,"golsFora":0},{"rodada":5,"casa":"Gana","fora":"Países Baixos","golsCasa":0,"golsFora":2},{"rodada":5,"casa":"Tunísia","fora":"Senegal","golsCasa":1,"golsFora":1},{"rodada":5,"casa":"Austrália","fora":"Polônia","golsCasa":0,"golsFora":2},{"rodada":4,"casa":"México","fora":"Uruguai","golsCasa":1,"golsFora":0},{"rodada":4,"casa":"Brasil","fora":"Espanha","golsCasa":1,"golsFora":0},{"rodada":4,"casa":"Tunísia","fora":"Equador","golsCasa":0,"golsFora":1},{"rodada":4,"casa":"Argentina","fora":"Bélgica","golsCasa":1,"golsFora":0},{"rodada":4,"casa":"Alemanha","fora":"Qatar","golsCasa":5,"golsFora":1},{"rodada":4,"casa":"México","fora":"Brasil","golsCasa":1,"golsFora":4},{"rodada":4,"casa":"Marrocos","fora":"Dinamarca","golsCasa":2,"golsFora":1},{"rodada":4,"casa":"Sérvia","fora":"Uruguai","golsCasa":2,"golsFora":0},{"rodada":4,"casa":"Costa Rica","fora":"Canadá","golsCasa":1,"golsFora":0},{"rodada":4,"casa":"Equador","fora":"Irã","golsCasa":1,"golsFora":0},{"rodada":4,"casa":"Gana","fora":"Marrocos","golsCasa":1,"golsFora":2},{"rodada":4,"casa":"Equador","fora":"Alemanha","golsCasa":0,"golsFora":2},{"rodada":4,"casa":"Sérvia","fora":"Arábia Saudita","golsCasa":1,"golsFora":0},{"rodada":4,"casa":"Japão","fora":"Irã","golsCasa":0,"golsFora":1},{"rodada":4,"casa":"Equador","fora":"Inglaterra","golsCasa":1,"golsFora":0},{"rodada":4,"casa":"Espanha","fora":"Suíça","golsCasa":1,"golsFora":0},{"rodada":4,"casa":"Coreia do Sul","fora":"Sérvia","golsCasa":2,"golsFora":3},{"rodada":4,"casa":"Senegal","fora":"Argentina","golsCasa":2,"golsFora":4},{"rodada":4,"casa":"EUA","fora":"Países Baixos","golsCasa":2,"golsFora":1},{"rodada":4,"casa":"Uruguai","fora":"Marrocos","golsCasa":1,"golsFora":0},{"rodada":3,"casa":"Portugal","fora":"Bélgica","golsCasa":2,"golsFora":1},{"rodada":3,"casa":"Irã","fora":"Coreia do Sul","golsCasa":2,"golsFora":1},{"rodada":3,"casa":"Austrália","fora":"Tunísia","golsCasa":0,"golsFora":0},{"rodada":3,"casa":"Marrocos","fora":"Sérvia","golsCasa":2,"golsFora":1},{"rodada":3,"casa":"Croácia","fora":"Polônia","golsCasa":2,"golsFora":2},{"rodada":3,"casa":"País de Gales","fora":"Equador","golsCasa":1,"golsFora":2},{"rodada":3,"casa":"Polônia","fora":"Suíça","golsCasa":2,"golsFora":1},{"rodada":3,"casa":"Uruguai","fora":"Portugal","golsCasa":1,"golsFora":3},{"rodada":3,"casa":"Argentina","fora":"México","golsCasa":0,"golsFora":0},{"rodada":3,"casa":"Austrália","fora":"Uruguai","golsCasa":1,"golsFora":0},{"rodada":3,"casa":"Irã","fora":"Canadá","golsCasa":0,"golsFora":0},{"rodada":3,"casa":"Dinamarca","fora":"Marrocos","golsCasa":2,"golsFora":1},{"rodada":3,"casa":"Canadá","fora":"Polônia","golsCasa":1,"golsFora":0},{"rodada":3,"casa":"Brasil","fora":"Japão","golsCasa":1,"golsFora":0},{"rodada":3,"casa":"Países Baixos","fora":"Equador","golsCasa":1,"golsFora":1},{"rodada":3,"casa":"Alemanha","fora":"Austrália","golsCasa":3,"golsFora":1},{"rodada":3,"casa":"Suíça","fora":"Portugal","golsCasa":1,"golsFora":0},{"rodada":3,"casa":"EUA","fora":"México","golsCasa":1,"golsFora":2},{"rodada":3,"casa":"Uruguai","fora":"Tunísia","golsCasa":2,"golsFora":0},{"rodada":3,"casa":"Equador","fora":"Suíça","golsCasa":2,"golsFora":1},{"rodada":2,"casa":"Uruguai","fora":"Gana","golsCasa":0,"golsFora":1},{"rodada":2,"casa":"Sérvia","fora":"Espanha","golsCasa":2,"golsFora":1},{"rodada":2,"casa":"Canadá","fora":"Camarões","golsCasa":4,"golsFora":1},{"rodada":2,"casa":"Dinamarca","fora":"Arábia Saudita","golsCasa":1,"golsFora":0},{"rodada":2,"casa":"Croácia","fora":"Espanha","golsCasa":1,"golsFora":2},{"rodada":2,"casa":"Austrália","fora":"Portugal","golsCasa":1,"golsFora":1},{"rodada":2,"casa":"Bélgica","fora":"Camarões","golsCasa":2,"golsFora":1},{"rodada":2,"casa":"Irã","fora":"Senegal","golsCasa":0,"golsFora":4},{"rodada":2,"casa":"Argentina","fora":"Alemanha","golsCasa":1,"golsFora":1},{"rodada":2,"casa":"EUA","fora":"Japão","golsCasa":0,"golsFora":0},{"rodada":2,"casa":"Canadá","fora":"Países Baixos","golsCasa":2,"golsFora":0},{"rodada":2,"casa":"Dinamarca","fora":"Polônia","golsCasa":1,"golsFora":3},{"rodada":2,"casa":"Argentina","fora":"Canadá","golsCasa":3,"golsFora":1},{"rodada":2,"casa":"EUA","fora":"Marrocos","golsCasa":0,"golsFora":0},{"rodada":2,"casa":"México","fora":"Canadá","golsCasa":0,"golsFora":0},{"rodada":2,"casa":"Argentina","fora":"Qatar","golsCasa":0,"golsFora":1},{"rodada":2,"casa":"Espanha","fora":"Tunísia","golsCasa":3,"golsFora":3},{"rodada":2,"casa":"Uruguai","fora":"Bélgica","golsCasa":1,"golsFora":1},{"rodada":2,"casa":"Arábia Saudita","fora":"Alemanha","golsCasa":0,"golsFora":2},{"rodada":2,"casa":"País de Gales","fora":"México","golsCasa":0,"golsFora":1},{"rodada":1,"casa":"Japão","fora":"Senegal","golsCasa":1,"golsFora":2},{"rodada":1,"casa":"Espanha","fora":"Coreia do Sul","golsCasa":2,"golsFora":2},{"rodada":1,"casa":"Dinamarca","fora":"Senegal","golsCasa":0,"golsFora":1},{"rodada":1,"casa":"Japão","fora":"Coreia do Sul","golsCasa":1,"golsFora":2},{"rodada":1,"casa":"Espanha","fora":"Camarões","golsCasa":1,"golsFora":0},{"rodada":1,"casa":"Suíça","fora":"Sérvia","golsCasa":0,"golsFora":1},{"rodada":1,"casa":"Brasil","fora":"Costa Rica","golsCasa":1,"golsFora":1},{"rodada":1,"casa":"Croácia","fora":"Argentina","golsCasa":2,"golsFora":1},{"rodada":1,"casa":"Equador","fora":"Brasil","golsCasa":1,"golsFora":2},{"rodada":1,"casa":"Argentina","fora":"Austrália","golsCasa":3,"golsFora":0},{"rodada":1,"casa":"Qatar","fora":"Croácia","golsCasa":1,"golsFora":0},{"rodada":1,"casa":"Irã","fora":"Brasil","golsCasa":0,"golsFora":1},{"rodada":1,"casa":"Coreia do Sul","fora":"Uruguai","golsCasa":0,"golsFora":0},{"rodada":1,"casa":"Austrália","fora":"Gana","golsCasa":1,"golsFora":1},{"rodada":1,"casa":"Uruguai","fora":"Qatar","golsCasa":1,"golsFora":1},{"rodada":1,"casa":"Croácia","fora":"Marrocos","golsCasa":2,"golsFora":0},{"rodada":1,"casa":"Coreia do Sul","fora":"Alemanha","golsCasa":0,"golsFora":2},{"rodada":1,"casa":"Brasil","fora":"Gana","golsCasa":1,"golsFora":1},{"rodada":1,"casa":"Inglaterra","fora":"Uruguai","golsCasa":3,"golsFora":0},{"rodada":1,"casa":"Equador","fora":"França","golsCasa":3,"golsFora":3}];
+
+// ── parse helpers ─────────────────────────────────────────────────────────────
+const parseGol = s => {
+  if (s === null || s === undefined) return null;
+  const str = String(s).trim();
+  if (str.includes('+')) return 5;
+  const n = parseInt(str);
+  return isNaN(n) ? null : n;
+};
+
+function toTimestamp(dateRaw, timeRaw) {
+  if (dateRaw != null) {
+    let dateMs = null;
+    if (typeof dateRaw === 'number') {
+      const serial = dateRaw > 60 ? dateRaw - 1 : dateRaw;
+      dateMs = (serial - 25569) * 86400000;
+    } else {
+      const d = new Date(String(dateRaw));
+      if (!isNaN(d)) dateMs = d.getTime();
+    }
+    if (dateMs !== null) {
+      let timeMs = 0;
+      if (timeRaw != null) {
+        if (typeof timeRaw === 'number' && timeRaw < 1) {
+          timeMs = Math.round(timeRaw * 86400000);
+        } else {
+          const mm = String(timeRaw).match(/(\d{1,2}):(\d{2})/);
+          if (mm) timeMs = (parseInt(mm[1]) * 60 + parseInt(mm[2])) * 60000;
+        }
+      }
+      return dateMs + timeMs;
+    }
+  }
+  return null;
+}
+
+function detectFormat(rows) {
+  for (let i = 0; i < Math.min(5, rows.length); i++) {
+    const raw = rows[i];
+    if (!raw || !Array.isArray(raw)) continue;
+    const row = raw.map(c => String(c ?? '').toLowerCase().trim());
+    const hasMandante = row.some(c => c.includes('mand')||c.includes('casa')||c.includes('home')||c.includes('time a')||c.includes('equipe a'));
+    const hasVisitante = row.some(c => c.includes('visit')||c.includes('fora')||c.includes('away')||c.includes('time b')||c.includes('equipe b'));
+    if (hasMandante && hasVisitante) return { type: 'tabular', headerRow: i };
+    if (row.some(c=>c.includes('rod')||c.includes('round')||c==='rd') && hasMandante) return { type: 'tabular', headerRow: i };
+  }
+  return { type: 'legacy' };
+}
+
+function parseTabular(rows, headerRow) {
+  const header = rows[headerRow].map(c => String(c ?? '').toLowerCase().trim());
+  const col = kws => header.findIndex(h => kws.some(k => h.includes(k)));
+  const iRodada    = col(['rod','round','rd','jornada']);
+  const iMandante  = col(['mand','casa','home','time a','equipe a']);
+  const iVisitante = col(['visit','fora','away','time b','equipe b']);
+  const iGolsCasa  = col(['gols casa','gols mand','gc','g. casa','g.c','golscasa','home goal','placar casa']);
+  const iGolsFora  = col(['gols fora','gols visit','gf','g. fora','g.f','golsfora','away goal','placar fora']);
+  const iPlacar    = col(['placar','result','score','gols']);
+  const iData      = col(['data','date','dia','día']);
+  const iHora      = col(['hora','hour','horario','horário','kickoff','kick-off']);
+  if (iMandante === -1 || iVisitante === -1) throw new Error('Colunas mandante/visitante não encontradas.');
+  const games = []; let seq = 0;
+  for (let r = headerRow + 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.every(c => c === null || c === '')) continue;
+    const casa = String(row[iMandante] ?? '').trim();
+    const fora = String(row[iVisitante] ?? '').trim();
+    if (!casa || !fora) continue;
+    let rodada = 1;
+    if (iRodada !== -1 && row[iRodada] != null) { const n = parseFloat(String(row[iRodada])); if (!isNaN(n)) rodada = Math.round(n); }
+    let gc = null, gf = null;
+    if (iGolsCasa !== -1 && iGolsFora !== -1) { gc = parseGol(row[iGolsCasa]); gf = parseGol(row[iGolsFora]); }
+    else if (iPlacar !== -1 && row[iPlacar] != null) { const p = String(row[iPlacar]).replace(/\s/g,''); const mm = p.match(/^(\d+)[x\-a](\d+)$/i); if (mm) { gc=parseInt(mm[1]); gf=parseInt(mm[2]); } }
+    if (gc === null || gf === null) continue;
+    const dateRaw = iData !== -1 ? row[iData] : null;
+    const timeRaw = iHora !== -1 ? row[iHora] : null;
+    const dataTs = toTimestamp(dateRaw, timeRaw);
+    games.push({ rodada, casa, fora, golsCasa: gc, golsFora: gf, seq: seq++, dataTs });
+  }
+  return games;
+}
+
+function parseLegacy(rows) {
+  const headerRow = rows[0] || [];
+  const headerNums = headerRow.slice(1).map(v => (v != null && !isNaN(parseFloat(v))) ? parseFloat(v) : null).filter(v => v !== null);
+  const maxHeader = headerNums.length ? Math.max(...headerNums) : 0;
+  const isLayoutB = maxHeader <= 23 && headerNums.length > 0;
+  const games = [];
+
+  if (isLayoutB) {
+    const horaCols = [];
+    for (let c = 1; c < headerRow.length; c++) {
+      const v = headerRow[c];
+      if (v != null && !isNaN(parseFloat(v))) horaCols.push({ colIdx: c, hora: Math.round(parseFloat(v)) });
+    }
+    for (let rowIdx = 1; rowIdx < rows.length; rowIdx++) {
+      const row = rows[rowIdx];
+      if (!row) continue;
+      const minRaw = row[0];
+      if (minRaw === 'H' || minRaw == null) continue;
+      const minNum = parseFloat(minRaw);
+      if (isNaN(minNum)) continue;
+      const minuto = Math.round(minNum);
+      for (const { colIdx, hora } of horaCols) {
+        const cell = row[colIdx];
+        if (!cell || typeof cell !== 'string') continue;
+        const parts = cell.trim().split('\n');
+        if (parts.length < 2) continue;
+        const times = parts[0].trim().split(' x ');
+        if (times.length !== 2) continue;
+        const score = parts[1].trim().split('x');
+        if (score.length !== 2) continue;
+        const gc = parseGol(score[0]); const gf = parseGol(score[1]);
+        if (gc === null || gf === null) continue;
+        const timeKey = hora * 100 + minuto;
+        games.push({ rodada: rowIdx, hora, minuto, casa: times[0].trim(), fora: times[1].trim(), golsCasa: gc, golsFora: gf, seq: -timeKey, dataTs: null });
+      }
+    }
+  } else {
+    const minuteCols = [];
+    for (let c = 1; c < headerRow.length; c++) {
+      const v = headerRow[c];
+      if (v !== null && v !== undefined && !isNaN(parseFloat(v))) minuteCols.push({ colIdx: c, minuto: parseInt(parseFloat(v)) });
+    }
+    let seq = 0;
+    for (let rowIdx = 1; rowIdx < rows.length; rowIdx++) {
+      const row = rows[rowIdx];
+      if (!row) continue;
+      const horaRaw = row[0];
+      if (horaRaw === 'H' || horaRaw == null) continue;
+      const horaNum = parseFloat(horaRaw);
+      if (isNaN(horaNum)) continue;
+      const hora = Math.round(horaNum);
+      for (const { colIdx, minuto } of minuteCols) {
+        const cell = row[colIdx];
+        if (!cell || typeof cell !== 'string') continue;
+        const parts = cell.trim().split('\n');
+        if (parts.length < 2) continue;
+        const times = parts[0].trim().split(' x ');
+        if (times.length !== 2) continue;
+        const score = parts[1].trim().split('x');
+        if (score.length !== 2) continue;
+        const gc = parseGol(score[0]); const gf = parseGol(score[1]);
+        if (gc === null || gf === null) continue;
+        const maxCols = minuteCols.length + 2;
+        games.push({ rodada: rowIdx, hora, minuto, casa: times[0].trim(), fora: times[1].trim(), golsCasa: gc, golsFora: gf, seq: rowIdx * 1000 + (maxCols - colIdx), dataTs: null });
+      }
+    }
+  }
+  return games;
+}
+
+function parseXlsx(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+        const { type, headerRow } = detectFormat(rows);
+        let games;
+        if (type === 'tabular') games = parseTabular(rows, headerRow);
+        else games = parseLegacy(rows);
+        if (games.length === 0) reject(new Error('Nenhum jogo encontrado. Verifique o formato da planilha.'));
+        else resolve({ games, format: type });
+      } catch (err) { reject(err); }
+    };
+    reader.onerror = () => reject(new Error('Erro ao ler o arquivo.'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function downloadTemplate() {
+  const wb = XLSX.utils.book_new();
+  const data = [
+    ['Rodada','Data','Hora','Mandante','Visitante','Gols Casa','Gols Fora'],
+    [1,'2025-06-01','15:00','Brasil','Argentina',2,1],
+    [1,'2025-06-01','18:00','França','Alemanha',1,1],
+    [2,'2025-06-08','15:00','Argentina','França',0,2],
+    [2,'2025-06-08','18:00','Alemanha','Brasil',3,1],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [{wch:10},{wch:14},{wch:10},{wch:18},{wch:18},{wch:12},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Jogos');
+  XLSX.writeFile(wb, 'modelo-streak-analyzer.xlsx');
+}
+
+// ── análise ───────────────────────────────────────────────────────────────────
+function getResult(g, adv) { return g > adv ? 'V' : g < adv ? 'D' : 'E'; }
+
+function maxStreak(arr, fn) {
+  let max = 0, cur = 0, best = [], cur2 = [];
+  arr.forEach(item => {
+    if (fn(item)) { cur++; cur2.push(item); if (cur > max) { max = cur; best = [...cur2]; } }
+    else { cur = 0; cur2 = []; }
+  });
+  return { count: max, games: best };
+}
+
+function analyzeTeam(name, schedule) {
+  const games = schedule
+    .filter(g => g.casa === name || g.fora === name)
+    .sort((a, b) => {
+      if (a.dataTs != null && b.dataTs != null) return b.dataTs - a.dataTs;
+      if (a.dataTs != null) return -1;
+      if (b.dataTs != null) return 1;
+      return (a.seq ?? 0) - (b.seq ?? 0);
+    })
+    .map(g => {
+      const isHome = g.casa === name;
+      const gols = isHome ? g.golsCasa : g.golsFora;
+      const golsAdv = isHome ? g.golsFora : g.golsCasa;
+      return { rodada: g.rodada, hora: g.hora, minuto: g.minuto, seq: g.seq, isHome, gols, golsAdv, result: getResult(gols, golsAdv) };
+    });
+  const home = games.filter(g => g.isHome);
+  const away = games.filter(g => !g.isHome);
+  const pts = games.reduce((s,g) => s+(g.result==='V'?3:g.result==='E'?1:0),0);
+  const gf  = games.reduce((s,g) => s+g.gols,0);
+  const gc  = games.reduce((s,g) => s+g.golsAdv,0);
+  return {
+    name, games, pts, gf, gc, gd: gf-gc,
+    w: games.filter(g=>g.result==='V').length,
+    d: games.filter(g=>g.result==='E').length,
+    l: games.filter(g=>g.result==='D').length,
+    maxWin:      maxStreak(games, g=>g.result==='V'),
+    maxLoss:     maxStreak(games, g=>g.result==='D'),
+    maxDraw:     maxStreak(games, g=>g.result==='E'),
+    maxUnbeaten: maxStreak(games, g=>g.result!=='D'),
+    maxNoWin:    maxStreak(games, g=>g.result!=='V'),
+    maxHomeCons: maxStreak(games, g=>g.isHome),
+    maxAwayCons: maxStreak(games, g=>!g.isHome),
+    maxHomeWin:  maxStreak(home, g=>g.result==='V'),
+    maxHomeLoss: maxStreak(home, g=>g.result==='D'),
+    maxHomeDraw: maxStreak(home, g=>g.result==='E'),
+    maxHomeUnb:  maxStreak(home, g=>g.result!=='D'),
+    maxHomeNoW:  maxStreak(home, g=>g.result!=='V'),
+    maxAwayWin:  maxStreak(away, g=>g.result==='V'),
+    maxAwayLoss: maxStreak(away, g=>g.result==='D'),
+    maxAwayDraw: maxStreak(away, g=>g.result==='E'),
+    maxAwayUnb:  maxStreak(away, g=>g.result!=='D'),
+    maxAwayNoW:  maxStreak(away, g=>g.result!=='V'),
+  };
+}
+
+// ── state ─────────────────────────────────────────────────────────────────────
+let state = {
+  schedule: DEFAULT_SCHEDULE.map((g,i) => ({...g, seq: i, dataTs: null})),
+  fileName: 'Copa (padrão)',
+  importing: false,
+  importErr: '',
+  importOk: '',
+  selected: null,
+  tab: 'times',
+  search: '',
+  showHelp: false,
+  showDetail: false, // mobile: show detail panel
+};
+
+let teams = [];
+
+function recompute() {
+  const names = [...new Set(state.schedule.flatMap(g => [g.casa, g.fora]))].sort();
+  teams = names.map(n => analyzeTeam(n, state.schedule)).sort((a,b) => b.pts-a.pts||b.gd-a.gd);
+}
+recompute();
+
+function setState(patch) {
+  Object.assign(state, patch);
+  if (patch.schedule !== undefined) recompute();
+  render();
+}
+
+// ── render helpers ────────────────────────────────────────────────────────────
+function dot(g) {
+  const label = g.hora != null
+    ? String(g.hora).padStart(2,'0')+':'+String(g.minuto??0).padStart(2,'0')
+    : 'R'+g.rodada;
+  const title = `${label} ${g.isHome?'Casa':'Fora'} ${g.gols}-${g.golsAdv}`;
+  return `<span class="dot dot-${g.result} ${g.isHome?'dot-home':'dot-away'}" title="${title}">${g.isHome?'C':'F'}</span>`;
+}
+
+function dots(games) {
+  return games.map(dot).join(' ');
+}
+
+function statRow(icon, label, streak) {
+  if (streak.count === 0) return '';
+  return `
+    <div class="stat-row">
+      <div style="width:22px;font-size:13px;text-align:center">${icon}</div>
+      <div style="flex:1;font-size:12px;color:#94a3b8">${label}</div>
+      <div style="width:28px;font-weight:800;font-size:15px;color:#f1f5f9;text-align:center">${streak.count}</div>
+      <div style="display:flex;gap:3px;flex-wrap:wrap;max-width:200px">${dots(streak.games)}</div>
+    </div>`;
+}
+
+function section(title, rows) {
+  const content = rows.join('');
+  if (!content.trim()) return '';
+  return `
+    <div style="margin-bottom:14px">
+      <div style="font-size:10px;font-weight:700;letter-spacing:2px;color:#475569;text-transform:uppercase;
+                  margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid #334155">${title}</div>
+      ${content}
+    </div>`;
+}
+
+function teamDetail(data) {
+  const isMobile = window.innerWidth <= 640;
+  return `
+    <div style="background:linear-gradient(145deg,#0c1827,#1a2d45);border:1px solid #1e3a5f;
+                border-radius:14px;padding:20px;box-shadow:0 20px 40px rgba(0,0,0,0.5)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+        <div>
+          <h2 style="margin:0;font-size:22px;font-weight:900;color:#f0f9ff;letter-spacing:-0.5px">${data.name}</h2>
+          <div style="display:flex;gap:10px;margin-top:5px;font-size:12px;flex-wrap:wrap">
+            <span style="color:#64748b">${data.games.length} jogos</span>
+            <span style="color:#22c55e;font-weight:700">${data.w}V</span>
+            <span style="color:#f59e0b;font-weight:700">${data.d}E</span>
+            <span style="color:#ef4444;font-weight:700">${data.l}D</span>
+            <span style="background:#1e3a5f;color:#7dd3fc;border-radius:5px;padding:1px 8px;font-weight:800">${data.pts} pts</span>
+            <span style="color:${data.gd>=0?'#4ade80':'#f87171'}">SG ${data.gd>0?'+':''}${data.gd}</span>
+          </div>
+        </div>
+        <button onclick="setState({selected:null,showDetail:false})"
+          style="background:#0f172a;border:1px solid #334155;color:#64748b;border-radius:7px;
+                 padding:6px 14px;font-size:12px">✕ ${isMobile?'Voltar':''}</button>
+      </div>
+      <div style="margin-bottom:16px">
+        <div style="font-size:10px;color:#475569;margin-bottom:6px;letter-spacing:1px;text-transform:uppercase">
+          Sequência cronológica (C=Casa · F=Fora)
+        </div>
+        <div style="display:flex;gap:3px;flex-wrap:wrap">${dots(data.games)}</div>
+      </div>
+      ${section('⚽ Gerais',[
+        statRow('🏆','Vitórias consecutivas',data.maxWin),
+        statRow('💔','Derrotas consecutivas',data.maxLoss),
+        statRow('🤝','Empates consecutivos',data.maxDraw),
+        statRow('🛡️','Jogos sem derrota',data.maxUnbeaten),
+        statRow('⚠️','Jogos sem vencer',data.maxNoWin),
+        statRow('🏠','Jogos consecutivos em casa',data.maxHomeCons),
+        statRow('✈️','Jogos consecutivos fora',data.maxAwayCons),
+      ])}
+      ${section('🏠 Como mandante',[
+        statRow('✅','Vitórias consecutivas',data.maxHomeWin),
+        statRow('❌','Derrotas consecutivas',data.maxHomeLoss),
+        statRow('➖','Empates consecutivos',data.maxHomeDraw),
+        statRow('🛡️','Jogos sem derrota',data.maxHomeUnb),
+        statRow('⚠️','Jogos sem vencer',data.maxHomeNoW),
+      ])}
+      ${section('✈️ Como visitante',[
+        statRow('✅','Vitórias consecutivas',data.maxAwayWin),
+        statRow('❌','Derrotas consecutivas',data.maxAwayLoss),
+        statRow('➖','Empates consecutivos',data.maxAwayDraw),
+        statRow('🛡️','Jogos sem derrota',data.maxAwayUnb),
+        statRow('⚠️','Jogos sem vencer',data.maxAwayNoW),
+      ])}
+    </div>`;
+}
+
+function renderApp() {
+  const isMobile = window.innerWidth <= 640;
+  const filtered = teams.filter(t => t.name.toLowerCase().includes(state.search.toLowerCase()));
+  const selectedData = state.selected ? teams.find(t => t.name === state.selected) : null;
+  const totalRodadas = state.schedule.length > 0 ? Math.max(...state.schedule.map(g=>g.rodada)) : 0;
+
+  // on mobile, if a team is selected, show detail panel only
+  const showingDetail = isMobile && state.showDetail && selectedData;
+
+  // sorted schedule
+  const sortedSchedule = [...state.schedule].sort((a,b) => {
+    if (a.dataTs != null && b.dataTs != null) return b.dataTs - a.dataTs;
+    if (a.dataTs != null) return -1;
+    if (b.dataTs != null) return 1;
+    return (a.seq ?? 0) - (b.seq ?? 0);
+  });
+
+  return `
+  <!-- header -->
+  <div style="background:linear-gradient(90deg,#091a2e,#0e3056);border-bottom:1px solid #1e3a5f;
+              padding:0 12px;display:flex;align-items:center;justify-content:space-between;
+              min-height:54px;gap:8px;position:sticky;top:0;z-index:100">
+    <div style="display:flex;align-items:center;gap:8px;min-width:0">
+      <span style="font-size:20px;flex-shrink:0">🏆</span>
+      <div style="min-width:0">
+        <div style="font-weight:900;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          Streak Analyzer
+        </div>
+        <div style="font-size:10px;color:#4a7aa7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          ${state.schedule.length} jogos · ${teams.length} times · ${state.fileName}
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
+      ${state.importing ? '<span style="font-size:11px;color:#7dd3fc">⏳</span>' : ''}
+      <button onclick="setState({showHelp:true})"
+        style="background:#0a1624;border:1px solid #1e3a5f;border-radius:8px;padding:6px 10px;
+               font-size:11px;color:#64748b;font-weight:700">❓</button>
+      <button onclick="downloadTemplate()"
+        style="background:#0a1624;border:1px solid #1e3a5f;border-radius:8px;padding:6px 10px;
+               font-size:11px;color:#64748b;font-weight:700">📥</button>
+      <label style="background:#0e3056;border:1px solid #2563eb;border-radius:8px;padding:6px 10px;
+                    font-size:11px;color:#93c5fd;font-weight:700;display:flex;align-items:center;gap:4px">
+        📤 <span class="hide-mobile">Importar</span>
+        <input type="file" accept=".xlsx,.xlsm,.xls" onchange="handleFile(event)" style="display:none">
+      </label>
+    </div>
+  </div>
+
+  <div style="max-width:1140px;margin:0 auto;padding:14px 12px">
+
+    ${state.importErr ? `
+    <div style="background:#450a0a;border:1px solid #ef4444;border-radius:10px;padding:10px 14px;
+                margin-bottom:12px;color:#fca5a5;font-size:12px;display:flex;justify-content:space-between;align-items:center">
+      <span>⚠️ ${state.importErr}</span>
+      <button onclick="setState({importErr:''})" style="background:none;border:none;color:#fca5a5;font-size:18px">✕</button>
+    </div>` : ''}
+
+    ${state.importOk ? `
+    <div style="background:#052e16;border:1px solid #16a34a;border-radius:10px;padding:10px 14px;
+                margin-bottom:12px;color:#86efac;font-size:12px;display:flex;justify-content:space-between;align-items:center">
+      <span>${state.importOk}</span>
+      <button onclick="setState({importOk:''})" style="background:none;border:none;color:#86efac;font-size:18px">✕</button>
+    </div>` : ''}
+
+    <!-- tabs -->
+    <div style="display:flex;gap:4px;margin-bottom:14px">
+      <button class="tab-btn ${state.tab==='times'?'active':'inactive'}" onclick="setState({tab:'times'})">📊 Times</button>
+      <button class="tab-btn ${state.tab==='tabela'?'active':'inactive'}" onclick="setState({tab:'tabela'})">🗓️ Tabela</button>
+    </div>
+
+    <!-- aba tabela -->
+    ${state.tab === 'tabela' ? `
+    <div style="background:#0a1624;border:1px solid #1e293b;border-radius:12px;overflow-x:auto;-webkit-overflow-scrolling:touch">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:320px">
+        <thead>
+          <tr style="background:#1e293b">
+            <th style="padding:9px 10px;color:#64748b;font-weight:700;font-size:11px;letter-spacing:1px;text-align:center">Horário</th>
+            <th style="padding:9px 10px;color:#64748b;font-weight:700;font-size:11px;text-align:right">Mandante</th>
+            <th style="padding:9px 6px;color:#64748b;font-weight:700;font-size:11px;text-align:center"></th>
+            <th style="padding:9px 10px;color:#64748b;font-weight:700;font-size:11px;text-align:left">Visitante</th>
+            <th style="padding:9px 10px;color:#64748b;font-weight:700;font-size:11px;text-align:center">Res</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sortedSchedule.map((g,i) => {
+            const r = getResult(g.golsCasa, g.golsFora);
+            const rcol = r==='V'?'#16a34a':r==='E'?'#d97706':'#dc2626';
+            const hora = g.hora != null
+              ? `<span style="color:#4a7aa7">${String(g.hora).padStart(2,'0')}:${String(g.minuto??0).padStart(2,'0')}</span>`
+              : `<span>${g.rodada}</span>`;
+            return `
+            <tr style="border-bottom:1px solid #0f1f30;background:${i%2===0?'transparent':'#070f1b'}">
+              <td style="padding:7px 10px;text-align:center;font-size:11px;white-space:nowrap">${hora}</td>
+              <td style="padding:7px 10px;text-align:right;font-weight:700">
+                <span onclick="setState({selected:'${g.casa.replace(/'/g,"\\'")}',tab:'times',showDetail:true})"
+                  style="cursor:pointer;color:#7dd3fc">${g.casa}</span>
+              </td>
+              <td style="padding:7px 6px;text-align:center">
+                <span style="background:#1e293b;border-radius:5px;padding:2px 6px;font-weight:800;letter-spacing:2px;color:#e2e8f0;font-size:13px">
+                  ${g.golsCasa}×${g.golsFora}
+                </span>
+              </td>
+              <td style="padding:7px 10px;font-weight:700">
+                <span onclick="setState({selected:'${g.fora.replace(/'/g,"\\'")}',tab:'times',showDetail:true})"
+                  style="cursor:pointer;color:#7dd3fc">${g.fora}</span>
+              </td>
+              <td style="padding:7px 10px;text-align:center">
+                <span style="background:${rcol};color:#fff;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:700">${r}</span>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
+
+    <!-- aba times -->
+    ${state.tab === 'times' ? `
+    ${showingDetail && selectedData ? `
+      <!-- mobile: detail only -->
+      ${teamDetail(selectedData)}
+    ` : `
+    <div style="display:grid;grid-template-columns:${selectedData && !isMobile ? '280px 1fr' : '1fr'};gap:14px">
+      <!-- lista de times -->
+      <div>
+        <input value="${state.search.replace(/"/g,'&quot;')}" oninput="setState({search:this.value})"
+          placeholder="🔍 Buscar time..."
+          style="width:100%;background:#0a1624;border:1px solid #1e3a5f;border-radius:8px;
+                 padding:8px 12px;color:#f1f5f9;font-size:12px;margin-bottom:8px;outline:none;display:block">
+        <div style="background:#0a1624;border:1px solid #1e293b;border-radius:12px;overflow:hidden">
+          <div style="padding:9px 14px;background:#111f30;font-size:10px;color:#4a7aa7;
+                      letter-spacing:1.5px;text-transform:uppercase;display:flex;justify-content:space-between">
+            <span>Time</span><span>V E D Pts</span>
+          </div>
+          ${filtered.length === 0 ? '<div style="padding:20px;text-align:center;color:#334155;font-size:12px">Nenhum time encontrado</div>' : ''}
+          ${filtered.map((t,i) => {
+            const active = state.selected === t.name;
+            return `
+            <div class="team-row ${active?'active':''}"
+              onclick="setState({selected:'${t.name.replace(/'/g,"\\'")}',showDetail:true})">
+              <div style="display:flex;gap:8px;align-items:center">
+                <span style="color:#1e3a5f;font-size:11px;width:18px;text-align:right">${i+1}</span>
+                <span style="font-weight:700;font-size:13px;color:${active?'#7dd3fc':'#cbd5e1'}">${t.name}</span>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center;font-size:11px">
+                <span style="color:#22c55e">${t.w}</span>
+                <span style="color:#f59e0b">${t.d}</span>
+                <span style="color:#ef4444">${t.l}</span>
+                <span style="background:#0e2236;color:#7dd3fc;border-radius:5px;padding:1px 7px;font-weight:800">${t.pts}</span>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- detalhe (desktop) -->
+      ${selectedData && !isMobile ? teamDetail(selectedData) : `
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+                    background:#0a1624;border:1px dashed #1e293b;border-radius:12px;min-height:300px;
+                    color:#1e3a5f;gap:10px" class="hide-mobile">
+          <div style="font-size:40px">🏆</div>
+          <div style="font-size:13px">Selecione um time para ver as sequências</div>
+        </div>`}
+    </div>`}` : ''}
+
+  </div>
+
+  <!-- modal ajuda -->
+  ${state.showHelp ? `
+  <div class="modal-overlay" onclick="setState({showHelp:false})">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+        <h3 style="margin:0;font-size:16px;font-weight:900;color:#f0f9ff">📋 Formato da planilha</h3>
+        <button onclick="setState({showHelp:false})"
+          style="background:#0f172a;border:1px solid #334155;color:#64748b;border-radius:7px;padding:4px 12px;font-size:12px">✕</button>
+      </div>
+      <div style="background:#091420;border:1px solid #1e3a5f;border-radius:10px;padding:16px;margin-bottom:14px">
+        <div style="font-size:11px;font-weight:800;color:#38bdf8;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px">✅ Formato Tabular (recomendado)</div>
+        <p style="margin:0 0 10px;font-size:11px;color:#94a3b8;line-height:1.6">Uma linha por jogo. Colunas aceitas:</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;margin-bottom:10px">
+          ${[['Rodada','rodada, round, rd'],['Mandante','mandante, casa, home'],['Visitante','visitante, fora, away'],
+             ['Gols Casa','gols casa, gc'],['Gols Fora','gols fora, gf'],['Data (opcional)','data, date, dia'],
+             ['Hora (opcional)','hora, horario, kickoff'],['Placar*','placar, score (ex: 2x1)']].map(([c,a])=>`
+          <div style="background:#0f1f30;border-radius:6px;padding:6px 10px">
+            <div style="color:#7dd3fc;font-weight:700;margin-bottom:2px">${c}</div>
+            <div style="color:#475569;font-size:10px">${a}</div>
+          </div>`).join('')}
+        </div>
+      </div>
+      <div style="background:#091420;border:1px solid #1e3a5f;border-radius:10px;padding:16px;margin-bottom:14px">
+        <div style="font-size:11px;font-weight:800;color:#a78bfa;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px">🔄 Formato Matriz (hora × minuto)</div>
+        <p style="margin:0 0 8px;font-size:11px;color:#94a3b8;line-height:1.6">
+          <b>Layout A</b> — colunas=minutos, linhas=horas:<br>
+          Linha 1: <code style="color:#a78bfa">H | 0 | 3 | 6 | … | 57</code><br>
+          Col A: hora (9, 8, 7… 0, 23…)
+        </p>
+        <p style="margin:0;font-size:11px;color:#94a3b8;line-height:1.6">
+          <b>Layout B</b> — colunas=horas, linhas=minutos:<br>
+          Linha 1: <code style="color:#a78bfa">H | 10 | 9 | 8 | …</code><br>
+          Col A: minuto (3, 6, 9…)
+        </p>
+        <p style="margin:8px 0 0;font-size:10px;color:#475569">Cada célula: <code style="color:#a78bfa">Time A x Time B↵2x1</code></p>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="downloadTemplate();setState({showHelp:false})"
+          style="flex:1;background:#0e3056;border:1px solid #2563eb;border-radius:8px;
+                 padding:10px 14px;font-size:12px;color:#93c5fd;font-weight:700">
+          📥 Baixar planilha modelo
+        </button>
+        <button onclick="setState({showHelp:false})"
+          style="background:#0f172a;border:1px solid #1e3a5f;border-radius:8px;
+                 padding:10px 14px;font-size:12px;color:#64748b;font-weight:700">
+          Fechar
+        </button>
+      </div>
+    </div>
+  </div>` : ''}
+  `;
+}
+
+function render() {
+  document.getElementById('app').innerHTML = renderApp();
+}
+
+// ── event handlers ────────────────────────────────────────────────────────────
+async function handleFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = '';
+  setState({ importing: true, importErr: '', importOk: '' });
+  try {
+    const { games, format } = await parseXlsx(file);
+    setState({
+      schedule: games,
+      fileName: file.name,
+      selected: null,
+      search: '',
+      importing: false,
+      importOk: `✅ ${games.length} jogos importados! (${format === 'tabular' ? 'tabular' : 'legado'})`,
+    });
+    setTimeout(() => setState({ importOk: '' }), 5000);
+  } catch (err) {
+    setState({ importing: false, importErr: err.message || 'Erro ao importar.' });
+  }
+}
+
+window.addEventListener('resize', render);
+render();
+</script>
+</body>
+</html>
