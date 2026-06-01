@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Streak Analyzer</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://apis.google.com/js/api.js"></script>
+<script src="https://accounts.google.com/gsi/client"></script>
 <style>
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{margin:0;background:#060e1a;color:#f1f5f9;font-family:'Courier New',monospace;min-height:100vh}
@@ -457,6 +459,11 @@ function renderApp() {
         📤 <span class="hide-mobile">Importar</span>
         <input type="file" accept=".xlsx,.xlsm,.xls" onchange="handleFile(event)" style="display:none">
       </label>
+      <button onclick="openDrivePicker()"
+        style="background:#1a3a1a;border:1px solid #16a34a;border-radius:8px;padding:6px 10px;
+               font-size:11px;color:#86efac;font-weight:700;white-space:nowrap">
+        📂 <span class="hide-mobile">Drive</span>
+      </button>
     </div>
   </div>
 
@@ -656,6 +663,121 @@ async function handleFile(event) {
     setState({ importing: false, importErr: err.message || 'Erro ao importar.' });
   }
 }
+
+// ── Google Drive / Picker ────────────────────────────────────────────────────
+const GAPI_KEY    = 'AIzaSyD_39d3oGsM3sWyqErSd6xRr_j88wclqD0';
+const GCLIENT_ID  = '923644871074-a53lg9s81dahdg9l7kte3bfneora13vs.apps.googleusercontent.com';
+const SCOPES      = 'https://www.googleapis.com/auth/drive.readonly';
+const PICKER_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel';
+
+let gapiReady   = false;
+let gisReady    = false;
+let tokenClient = null;
+let accessToken = null;
+
+function initGapi() {
+  gapi.load('picker', () => { gapiReady = true; });
+}
+
+function initGis() {
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GCLIENT_ID,
+    scope: SCOPES,
+    callback: (resp) => {
+      if (resp.error) {
+        setState({ importErr: 'Erro de autenticação Google: ' + resp.error });
+        return;
+      }
+      accessToken = resp.access_token;
+      showPicker();
+    },
+  });
+  gisReady = true;
+}
+
+function openDrivePicker() {
+  if (!gapiReady || !gisReady) {
+    setState({ importErr: 'APIs do Google ainda carregando, tente novamente em instantes.' });
+    return;
+  }
+  if (accessToken) {
+    showPicker();
+  } else {
+    tokenClient.requestAccessToken({ prompt: 'consent' });
+  }
+}
+
+function showPicker() {
+  const view = new google.picker.DocsView()
+    .setIncludeFolders(false)
+    .setMimeTypes(PICKER_MIME)
+    .setMode(google.picker.DocsViewMode.LIST);
+
+  const picker = new google.picker.PickerBuilder()
+    .addView(view)
+    .setOAuthToken(accessToken)
+    .setDeveloperKey(GAPI_KEY)
+    .setTitle('Selecione sua planilha')
+    .setCallback(pickerCallback)
+    .build();
+
+  picker.setVisible(true);
+}
+
+async function pickerCallback(data) {
+  if (data[google.picker.Response.ACTION] !== google.picker.Action.PICKED) return;
+  const file = data[google.picker.Response.DOCUMENTS][0];
+  const fileId = file[google.picker.Document.ID];
+  const fileName = file[google.picker.Document.NAME];
+
+  setState({ importing: true, importErr: '', importOk: '' });
+  try {
+    const resp = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!resp.ok) throw new Error(`Erro ao baixar arquivo: ${resp.status}`);
+    const arrayBuffer = await resp.arrayBuffer();
+    const data2 = new Uint8Array(arrayBuffer);
+    const wb = XLSX.read(data2, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+    const { type, headerRow } = detectFormat(rows);
+    let games;
+    if (type === 'tabular') games = parseTabular(rows, headerRow);
+    else games = parseLegacy(rows);
+    if (games.length === 0) throw new Error('Nenhum jogo encontrado na planilha.');
+    setState({
+      schedule: games,
+      fileName: fileName,
+      selected: null,
+      search: '',
+      importing: false,
+      importOk: `✅ ${games.length} jogos importados do Drive! (${type === 'tabular' ? 'tabular' : 'legado'})`,
+    });
+    setTimeout(() => setState({ importOk: '' }), 5000);
+  } catch (err) {
+    // Token expirado — pede novo
+    if (err.message.includes('401') || err.message.includes('403')) {
+      accessToken = null;
+      setState({ importing: false, importErr: 'Sessão expirada. Clique em 📂 Drive novamente.' });
+    } else {
+      setState({ importing: false, importErr: err.message || 'Erro ao importar do Drive.' });
+    }
+  }
+}
+
+// init Google APIs
+window.addEventListener('load', () => {
+  if (typeof gapi !== 'undefined') gapi.load('picker', () => { gapiReady = true; });
+  if (typeof google !== 'undefined' && google.accounts) initGis();
+  // poll until both libs load (async CDN)
+  const poll = setInterval(() => {
+    if (typeof gapi !== 'undefined' && !gapiReady) gapi.load('picker', () => { gapiReady = true; });
+    if (typeof google !== 'undefined' && google.accounts && !gisReady) initGis();
+    if (gapiReady && gisReady) clearInterval(poll);
+  }, 500);
+});
 
 window.addEventListener('resize', render);
 render();
