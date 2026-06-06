@@ -15,8 +15,12 @@
   ::-webkit-scrollbar{width:4px;height:4px}
   ::-webkit-scrollbar-track{background:#0a1624}
   ::-webkit-scrollbar-thumb{background:#1e3a5f;border-radius:2px}
-  .dot{width:24px;height:24px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;
-       font-size:9px;font-weight:800;color:#fff;flex-shrink:0;cursor:default}
+  .dot{width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;
+       font-size:9px;font-weight:800;color:#fff;flex-shrink:0;cursor:pointer;position:relative;touch-action:manipulation}
+  .dot-tip{position:fixed;background:#0f172a;border:1px solid #334155;border-radius:8px;
+           padding:6px 10px;font-size:11px;color:#f1f5f9;white-space:nowrap;z-index:9999;
+           pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,0.6);line-height:1.5;
+           transform:translateX(-50%);transition:opacity 0.15s}
   .dot-V{background:#16a34a} .dot-E{background:#d97706} .dot-D{background:#dc2626}
   .dot-home{border:2px solid rgba(255,255,255,0.45)} .dot-away{border:2px solid transparent}
   .team-row{padding:10px 14px;cursor:pointer;border-bottom:1px solid #0a1421;
@@ -252,6 +256,26 @@ function maxStreak(arr, fn) {
   return { count: max, games: best };
 }
 
+function currentStreak(games) {
+  // games já estão em ordem cronológica (mais recente primeiro)
+  if (!games || games.length === 0) return { type: null, count: 0 };
+  const first = games[0];
+  let type, fn;
+  // detecta o tipo da sequência atual
+  if (first.result === 'V')      { type = 'V'; fn = g => g.result === 'V'; }
+  else if (first.result === 'D') { type = 'D'; fn = g => g.result === 'D'; }
+  else                           { type = 'E'; fn = g => g.result === 'E'; }
+  let count = 0;
+  for (const g of games) { if (fn(g)) count++; else break; }
+  // sequências especiais
+  let unbeaten = 0, noWin = 0, bttsY = 0, bttsN = 0;
+  for (const g of games) { if (g.result !== 'D') unbeaten++; else break; }
+  for (const g of games) { if (g.result !== 'V') noWin++;    else break; }
+  for (const g of games) { if (g.gols > 0 && g.golsAdv > 0) bttsY++; else break; }
+  for (const g of games) { if (g.gols === 0 || g.golsAdv === 0) bttsN++; else break; }
+  return { type, count, unbeaten, noWin, bttsY, bttsN };
+}
+
 function analyzeTeam(name, schedule) {
   const games = schedule
     .filter(g => g.casa === name || g.fora === name)
@@ -294,7 +318,663 @@ function analyzeTeam(name, schedule) {
     maxAwayDraw: maxStreak(away, g=>g.result==='E'),
     maxAwayUnb:  maxStreak(away, g=>g.result!=='D'),
     maxAwayNoW:  maxStreak(away, g=>g.result!=='V'),
+    maxBttsYes:  maxStreak(games, g=>g.gols>0 && g.golsAdv>0),
+    maxBttsNo:   maxStreak(games, g=>g.gols===0 || g.golsAdv===0),
+    maxHomeBttsY:maxStreak(home,  g=>g.gols>0 && g.golsAdv>0),
+    maxHomeBttsN:maxStreak(home,  g=>g.gols===0 || g.golsAdv===0),
+    maxAwayBttsY:maxStreak(away,  g=>g.gols>0 && g.golsAdv>0),
+    maxAwayBttsN:maxStreak(away,  g=>g.gols===0 || g.golsAdv===0),
+    maxOver25:   maxStreak(games, g=>(g.gols+g.golsAdv)>2),
+    maxOver35:   maxStreak(games, g=>(g.gols+g.golsAdv)>3),
+    maxUnder25:  maxStreak(games, g=>(g.gols+g.golsAdv)<3),
+    maxHomeOver25: maxStreak(home, g=>(g.gols+g.golsAdv)>2),
+    maxHomeOver35: maxStreak(home, g=>(g.gols+g.golsAdv)>3),
+    maxHomeUnder25:maxStreak(home, g=>(g.gols+g.golsAdv)<3),
+    maxAwayOver25: maxStreak(away, g=>(g.gols+g.golsAdv)>2),
+    maxAwayOver35: maxStreak(away, g=>(g.gols+g.golsAdv)>3),
+    maxAwayUnder25:maxStreak(away, g=>(g.gols+g.golsAdv)<3),
+    current: currentStreak(games),
   };
+}
+
+// ── rankings ─────────────────────────────────────────────────────────────────
+// ── alertas ───────────────────────────────────────────────────────────────────
+const ALERT_THRESHOLD = 3; // jogos de distância para alertar
+
+const ALERT_MARKETS = [
+  { key:'maxWin',       label:'Vitórias consecutivas',       icon:'🏆', color:'#16a34a' },
+  { key:'maxUnbeaten',  label:'Invicto',                     icon:'🛡️', color:'#2563eb' },
+  { key:'maxLoss',      label:'Derrotas consecutivas',       icon:'💔', color:'#dc2626' },
+  { key:'maxNoWin',     label:'Sem vencer',                  icon:'⚠️', color:'#d97706' },
+  { key:'maxDraw',      label:'Empates consecutivos',        icon:'🤝', color:'#8b5cf6' },
+  { key:'maxHomeWin',   label:'Vitórias seguidas em casa',   icon:'🏠🏆', color:'#16a34a' },
+  { key:'maxHomeLoss',  label:'Derrotas seguidas em casa',   icon:'🏠💔', color:'#dc2626' },
+  { key:'maxHomeUnb',   label:'Invicto em casa',             icon:'🏠🛡️', color:'#2563eb' },
+  { key:'maxHomeNoW',   label:'Sem vencer em casa',          icon:'🏠⚠️', color:'#d97706' },
+  { key:'maxAwayWin',   label:'Vitórias seguidas fora',      icon:'✈️🏆', color:'#16a34a' },
+  { key:'maxAwayLoss',  label:'Derrotas seguidas fora',      icon:'✈️💔', color:'#dc2626' },
+  { key:'maxAwayUnb',   label:'Invicto fora',                icon:'✈️🛡️', color:'#2563eb' },
+  { key:'maxAwayNoW',   label:'Sem vencer fora',             icon:'✈️⚠️', color:'#d97706' },
+  { key:'maxBttsYes',   label:'Ambas marcam',                icon:'⚽⚽', color:'#10b981' },
+  { key:'maxBttsNo',    label:'Ambas NÃO marcam',            icon:'🚫⚽', color:'#6366f1' },
+  { key:'maxHomeBttsY', label:'Ambas marcam em casa',        icon:'🏠⚽', color:'#10b981' },
+  { key:'maxHomeBttsN', label:'Ambas NÃO marcam em casa',   icon:'🏠🚫', color:'#6366f1' },
+  { key:'maxAwayBttsY', label:'Ambas marcam fora',           icon:'✈️⚽', color:'#10b981' },
+  { key:'maxAwayBttsN', label:'Ambas NÃO marcam fora',      icon:'✈️🚫', color:'#6366f1' },
+];
+
+// retorna lista de alertas: { team, market, current, record, gap, breaking }
+function calcAlerts(teams) {
+  const alerts = [];
+  for (const t of teams) {
+    for (const m of ALERT_MARKETS) {
+      const record = t[m.key]?.count ?? 0;
+      if (record === 0) continue;
+      // pega a sequência ATUAL desse mercado específico
+      const curSeq = calcCurrentForMarket(t, m.key);
+      const gap = record - curSeq;
+      if (gap === 0) {
+        // já está igualando o recorde
+        alerts.push({ team: t, market: m, current: curSeq, record, gap: 0, breaking: true });
+      } else if (gap <= ALERT_THRESHOLD) {
+        alerts.push({ team: t, market: m, current: curSeq, record, gap, breaking: false });
+      }
+    }
+  }
+  // ordena: igualando primeiro, depois por menor gap, depois por maior sequência atual
+  alerts.sort((a,b) => a.gap - b.gap || b.current - a.current);
+  return alerts;
+}
+
+function calcCurrentForMarket(t, key) {
+  const games = t.games; // já em ordem cronológica mais recente primeiro
+  const fn = marketFn(key, t);
+  let count = 0;
+  for (const g of games) {
+    if (fn(g)) count++; else break;
+  }
+  return count;
+}
+
+function marketFn(key, t) {
+  switch(key) {
+    case 'maxWin':       return g => g.result === 'V';
+    case 'maxUnbeaten':  return g => g.result !== 'D';
+    case 'maxLoss':      return g => g.result === 'D';
+    case 'maxNoWin':     return g => g.result !== 'V';
+    case 'maxDraw':      return g => g.result === 'E';
+    case 'maxHomeWin':   return g => g.isHome && g.result === 'V';
+    case 'maxHomeLoss':  return g => g.isHome && g.result === 'D';
+    case 'maxHomeUnb':   return g => g.isHome && g.result !== 'D';
+    case 'maxHomeNoW':   return g => g.isHome && g.result !== 'V';
+    case 'maxAwayWin':   return g => !g.isHome && g.result === 'V';
+    case 'maxAwayLoss':  return g => !g.isHome && g.result === 'D';
+    case 'maxAwayUnb':   return g => !g.isHome && g.result !== 'D';
+    case 'maxAwayNoW':   return g => !g.isHome && g.result !== 'V';
+    case 'maxBttsYes':   return g => g.gols > 0 && g.golsAdv > 0;
+    case 'maxBttsNo':    return g => g.gols === 0 || g.golsAdv === 0;
+    case 'maxHomeBttsY': return g => g.isHome && g.gols > 0 && g.golsAdv > 0;
+    case 'maxHomeBttsN': return g => g.isHome && (g.gols === 0 || g.golsAdv === 0);
+    case 'maxAwayBttsY': return g => !g.isHome && g.gols > 0 && g.golsAdv > 0;
+    case 'maxAwayBttsN': return g => !g.isHome && (g.gols === 0 || g.golsAdv === 0);
+    default: return () => false;
+  }
+}
+
+function renderAlertas(teams) {
+  const alerts = calcAlerts(teams);
+
+  if (teams.length === 0) return `
+    <div style="padding:40px;text-align:center;color:#334155;font-size:13px">
+      Importe uma planilha para ver os alertas.
+    </div>`;
+
+  if (alerts.length === 0) return `
+    <div style="background:#0a1624;border:1px dashed #1e293b;border-radius:12px;
+                padding:40px;text-align:center;color:#334155;font-size:13px">
+      <div style="font-size:32px;margin-bottom:10px">✅</div>
+      Nenhum time está próximo de bater um recorde agora.
+    </div>`;
+
+  const breaking = alerts.filter(a => a.breaking);
+  const near     = alerts.filter(a => !a.breaking);
+
+  function alertCard(a) {
+    const urgency = a.breaking ? '#ef4444' : a.gap === 1 ? '#f97316' : a.gap === 2 ? '#f59e0b' : '#3b82f6';
+    const urgencyBg = a.breaking ? '#450a0a' : a.gap === 1 ? '#431407' : a.gap === 2 ? '#422006' : '#0c1a3a';
+    const pct = Math.round((a.current / a.record) * 100);
+    const recentDots = a.team.games.slice(0,6).map(g => {
+      const c = g.result==='V'?'#16a34a':g.result==='D'?'#dc2626':'#d97706';
+      return `<span style="width:11px;height:11px;border-radius:2px;background:${c};display:inline-block"></span>`;
+    }).join('');
+
+    return `
+      <div style="background:${urgencyBg};border:1px solid ${urgency}55;border-radius:12px;
+                  padding:14px;margin-bottom:10px;cursor:pointer"
+           onclick="setState({selected:'${a.team.name.replace(/'/g,"\\'")}',tab:'times',showDetail:true})">
+
+        <!-- top row -->
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:8px;min-width:0">
+            <span style="font-size:18px;flex-shrink:0">${a.market.icon}</span>
+            <div style="min-width:0">
+              <div style="font-weight:900;font-size:14px;color:#f0f9ff;white-space:nowrap;
+                          overflow:hidden;text-overflow:ellipsis">${a.team.name}</div>
+              <div style="font-size:11px;color:#94a3b8;margin-top:1px">${a.market.label}</div>
+            </div>
+          </div>
+          <div style="flex-shrink:0;text-align:center">
+            ${a.breaking
+              ? `<div style="background:#ef4444;color:#fff;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:900">🔥 IGUALANDO</div>`
+              : `<div style="background:${urgency};color:#fff;border-radius:8px;padding:4px 10px;font-size:13px;font-weight:900">-${a.gap}</div>
+                 <div style="font-size:9px;color:#94a3b8;margin-top:2px">para bater</div>`
+            }
+          </div>
+        </div>
+
+        <!-- progress -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <div style="flex:1;height:8px;background:#0a1421;border-radius:4px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:${urgency};border-radius:4px;
+                        transition:width 0.3s"></div>
+          </div>
+          <span style="font-size:12px;font-weight:800;color:${urgency};flex-shrink:0">
+            ${a.current} / ${a.record}
+          </span>
+        </div>
+
+        <!-- bottom row -->
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;gap:2px">${recentDots}</div>
+          <div style="font-size:10px;color:#475569">
+            ${a.breaking ? 'Igualando o recorde histórico!' : `Faltam ${a.gap} jogo${a.gap>1?'s':''} para o recorde de ${a.record}`}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  return `
+    <!-- resumo -->
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      ${breaking.length > 0 ? `
+      <div style="background:#450a0a;border:1px solid #ef4444;border-radius:10px;padding:10px 16px;flex:1;min-width:120px;text-align:center">
+        <div style="font-size:22px;font-weight:900;color:#ef4444">${breaking.length}</div>
+        <div style="font-size:10px;color:#f87171;letter-spacing:1px;text-transform:uppercase">🔥 Igualando recorde</div>
+      </div>` : ''}
+      <div style="background:#0a1624;border:1px solid #1e293b;border-radius:10px;padding:10px 16px;flex:1;min-width:120px;text-align:center">
+        <div style="font-size:22px;font-weight:900;color:#f97316">${near.filter(a=>a.gap===1).length}</div>
+        <div style="font-size:10px;color:#94a3b8;letter-spacing:1px;text-transform:uppercase">Falta 1 jogo</div>
+      </div>
+      <div style="background:#0a1624;border:1px solid #1e293b;border-radius:10px;padding:10px 16px;flex:1;min-width:120px;text-align:center">
+        <div style="font-size:22px;font-weight:900;color:#f59e0b">${near.filter(a=>a.gap===2).length}</div>
+        <div style="font-size:10px;color:#94a3b8;letter-spacing:1px;text-transform:uppercase">Faltam 2 jogos</div>
+      </div>
+      <div style="background:#0a1624;border:1px solid #1e293b;border-radius:10px;padding:10px 16px;flex:1;min-width:120px;text-align:center">
+        <div style="font-size:22px;font-weight:900;color:#3b82f6">${near.filter(a=>a.gap===3).length}</div>
+        <div style="font-size:10px;color:#94a3b8;letter-spacing:1px;text-transform:uppercase">Faltam 3 jogos</div>
+      </div>
+    </div>
+
+    <!-- igualando recorde -->
+    ${breaking.length > 0 ? `
+    <div style="font-size:10px;font-weight:800;letter-spacing:2px;color:#ef4444;
+                text-transform:uppercase;margin-bottom:8px">🔥 Igualando o recorde agora</div>
+    ${breaking.map(alertCard).join('')}
+    ` : ''}
+
+    <!-- próximos -->
+    ${near.length > 0 ? `
+    <div style="font-size:10px;font-weight:800;letter-spacing:2px;color:#475569;
+                text-transform:uppercase;margin:${breaking.length>0?'16px':0} 0 8px">
+      ⚡ Próximos de bater o recorde
+    </div>
+    ${near.map(alertCard).join('')}
+    ` : ''}
+  `;
+}
+
+function calcGlobalBtts(schedule) {
+  // Ordena todos os jogos cronologicamente (mais recente primeiro = seq ASC)
+  const sorted = [...schedule].sort((a,b) => {
+    if (a.dataTs != null && b.dataTs != null) return b.dataTs - a.dataTs;
+    if (a.dataTs != null) return -1;
+    if (b.dataTs != null) return 1;
+    return (a.seq ?? 0) - (b.seq ?? 0);
+  });
+
+  // inverte para ordem cronológica crescente (mais antigo primeiro) para calcular sequências
+  const asc = [...sorted].reverse();
+
+  function bestStreak(fn) {
+    let max = 0, cur = 0, bestGames = [], curGames = [];
+    for (const g of asc) {
+      if (fn(g)) {
+        cur++; curGames.push(g);
+        if (cur > max) { max = cur; bestGames = [...curGames]; }
+      } else { cur = 0; curGames = []; }
+    }
+    // sequência atual (no final da lista = jogos mais recentes)
+    let curStreak = 0;
+    for (let i = asc.length - 1; i >= 0; i--) {
+      if (fn(asc[i])) curStreak++; else break;
+    }
+    return { count: max, games: bestGames, current: curStreak };
+  }
+
+  return {
+    bttsYes: bestStreak(g => g.golsCasa > 0 && g.golsFora > 0),
+    bttsNo:  bestStreak(g => g.golsCasa === 0 || g.golsFora === 0),
+  };
+}
+
+function renderGlobalBtts() {
+  const { bttsYes, bttsNo } = calcGlobalBtts(state.schedule);
+  const total = state.schedule.length;
+
+  function card(icon, label, color, streak) {
+    const pct = total > 0 ? Math.round((streak.count / total) * 100) : 0;
+    const curCol = streak.current > 0 ? color : '#334155';
+    // mini dots for best streak (max 20)
+    const miniDots = streak.games.slice(0, 20).map(g => {
+      const hora = g.hora != null
+        ? String(g.hora).padStart(2,'0')+':'+String(g.minuto??0).padStart(2,'0')
+        : 'R'+g.rodada;
+      const tip = `${hora} ${g.casa} ${g.golsCasa}x${g.golsFora} ${g.fora}`;
+      const esc = tip.replace(/'/g,"\\'");
+      return `<span class="dot" style="background:${color};border:2px solid rgba(255,255,255,0.2);width:22px;height:22px;font-size:8px"
+        onmouseenter="showTip(this,'${esc}')" onmouseleave="hideTip()"
+        ontouchstart="showTip(this,'${esc}');event.stopPropagation()">⚽</span>`;
+    }).join('');
+
+    return `
+      <div style="background:#091420;border:1px solid ${color}44;border-radius:14px;padding:18px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <span style="font-size:24px">${icon}</span>
+          <div>
+            <div style="font-size:14px;font-weight:900;color:#f0f9ff">${label}</div>
+            <div style="font-size:11px;color:#475569;margin-top:2px">${total} jogos analisados</div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+          <div style="background:#0a1624;border:1px solid #1e3a5f;border-radius:10px;padding:12px 18px;text-align:center;flex:1;min-width:100px">
+            <div style="font-size:10px;color:#475569;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">Recorde histórico</div>
+            <div style="font-size:36px;font-weight:900;color:${color}">${streak.count}</div>
+            <div style="font-size:10px;color:#475569">jogos seguidos</div>
+          </div>
+          <div style="background:#0a1624;border:1px solid ${curCol};border-radius:10px;padding:12px 18px;text-align:center;flex:1;min-width:100px">
+            <div style="font-size:10px;color:#475569;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">Sequência atual</div>
+            <div style="font-size:36px;font-weight:900;color:${curCol}">${streak.current}</div>
+            <div style="font-size:10px;color:#475569">jogos seguidos</div>
+          </div>
+          <div style="background:#0a1624;border:1px solid #1e3a5f;border-radius:10px;padding:12px 18px;text-align:center;flex:1;min-width:100px">
+            <div style="font-size:10px;color:#475569;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">% dos jogos</div>
+            <div style="font-size:36px;font-weight:900;color:#7dd3fc">${pct}%</div>
+            <div style="font-size:10px;color:#475569">${streak.count} de ${total}</div>
+          </div>
+        </div>
+
+        <div style="margin-bottom:8px">
+          <div style="font-size:10px;color:#475569;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">
+            Jogos da sequência recorde (${streak.games.length} jogos)
+          </div>
+          <div style="display:flex;flex-direction:column;gap:3px;max-height:260px;overflow-y:auto;
+                      -webkit-overflow-scrolling:touch;padding-right:4px">
+            ${streak.games.map(g => {
+              const hora = g.hora != null
+                ? String(g.hora).padStart(2,'0')+':'+String(g.minuto??0).padStart(2,'0')
+                : 'R'+g.rodada;
+              const bttsOk = g.golsCasa > 0 && g.golsFora > 0;
+              const dot2col = bttsOk ? color : '#6366f1';
+              return `<div style="display:flex;align-items:center;gap:8px;background:#0a1421;
+                                  border-radius:6px;padding:5px 8px;font-size:11px">
+                <span style="color:#4a7aa7;font-weight:700;flex-shrink:0;min-width:36px">${hora}</span>
+                <span style="flex:1;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${g.casa}</span>
+                <span style="background:#1e293b;color:#e2e8f0;border-radius:4px;padding:1px 6px;
+                             font-weight:800;flex-shrink:0">${g.golsCasa}×${g.golsFora}</span>
+                <span style="flex:1;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right">${g.fora}</span>
+                <span style="background:${dot2col};color:#fff;border-radius:4px;padding:1px 6px;
+                             font-weight:800;font-size:10px;flex-shrink:0">${bttsOk?'SIM':'NÃO'}</span>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+
+        <div style="height:6px;background:#0a1421;border-radius:3px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:${color};border-radius:3px;opacity:0.6"></div>
+        </div>
+      </div>`;
+  }
+
+  return `
+    ${card('⚽⚽', 'Ambas Marcam — SIM', '#10b981', bttsYes)}
+    ${card('🚫⚽', 'Ambas Marcam — NÃO', '#6366f1', bttsNo)}
+  `;
+}
+
+function renderCompare() {
+  const teamNames = teams.map(t => t.name);
+  const tA = state.compareA ? teams.find(t => t.name === state.compareA) : null;
+  const tB = state.compareB ? teams.find(t => t.name === state.compareB) : null;
+
+  const selector = (label, val, key) => `
+    <div style="flex:1;min-width:0">
+      <div style="font-size:10px;color:#475569;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">${label}</div>
+      <select onchange="setState({${key}:this.value||null})"
+        style="width:100%;background:#0a1624;border:1px solid #1e3a5f;border-radius:8px;
+               padding:8px 10px;color:#f1f5f9;font-size:13px;font-weight:700;outline:none;
+               font-family:'Courier New',monospace">
+        <option value="">— Selecionar time —</option>
+        ${teamNames.map(n=>`<option value="${n}" ${val===n?'selected':''}>${n}</option>`).join('')}
+      </select>
+    </div>`;
+
+  const metrics = [
+    { key:'maxWin',       label:'🏆 Vitórias consecutivas' },
+    { key:'maxUnbeaten',  label:'🛡️ Invicto' },
+    { key:'maxLoss',      label:'💔 Derrotas consecutivas' },
+    { key:'maxNoWin',     label:'⚠️ Sem vencer' },
+    { key:'maxDraw',      label:'🤝 Empates consecutivos' },
+    { key:'maxHomeWin',   label:'🏠✅ Vitórias em casa' },
+    { key:'maxHomeLoss',  label:'🏠❌ Derrotas em casa' },
+    { key:'maxHomeUnb',   label:'🏠🛡️ Invicto em casa' },
+    { key:'maxAwayWin',   label:'✈️✅ Vitórias fora' },
+    { key:'maxAwayLoss',  label:'✈️❌ Derrotas fora' },
+    { key:'maxAwayUnb',   label:'✈️🛡️ Invicto fora' },
+    { key:'maxBttsYes',    label:'⚽⚽ Ambas marcam' },
+    { key:'maxBttsNo',     label:'🚫⚽ Ambas NÃO marcam' },
+    { key:'maxOver25',     label:'🔺 Over 2.5' },
+    { key:'maxOver35',     label:'🔺🔺 Over 3.5' },
+    { key:'maxUnder25',    label:'🔻 Under 2.5' },
+  ];
+
+  const metricRows = (!tA || !tB) ? '' : metrics.map(m => {
+    const vA = tA[m.key]?.count ?? 0;
+    const vB = tB[m.key]?.count ?? 0;
+    const max = Math.max(vA, vB, 1);
+    const winA = vA > vB, winB = vB > vA;
+    const barA = Math.round((vA/max)*100);
+    const barB = Math.round((vB/max)*100);
+    return `
+      <div style="padding:10px 0;border-bottom:1px solid #0a1421">
+        <div style="font-size:11px;color:#64748b;text-align:center;margin-bottom:6px">${m.label}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <!-- team A bar (right-aligned) -->
+          <div style="flex:1;display:flex;align-items:center;gap:6px;justify-content:flex-end">
+            <span style="font-size:16px;font-weight:900;color:${winA?'#4ade80':'#94a3b8'}">${vA}</span>
+            <div style="width:80px;height:8px;background:#0a1421;border-radius:4px;overflow:hidden">
+              <div style="width:${barA}%;height:100%;background:${winA?'#16a34a':'#334155'};border-radius:4px;margin-left:auto"></div>
+            </div>
+          </div>
+          <div style="width:2px;height:20px;background:#1e3a5f;flex-shrink:0"></div>
+          <!-- team B bar (left-aligned) -->
+          <div style="flex:1;display:flex;align-items:center;gap:6px">
+            <div style="width:80px;height:8px;background:#0a1421;border-radius:4px;overflow:hidden">
+              <div style="width:${barB}%;height:100%;background:${winB?'#16a34a':'#334155'};border-radius:4px"></div>
+            </div>
+            <span style="font-size:16px;font-weight:900;color:${winB?'#4ade80':'#94a3b8'}">${vB}</span>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  // current streak comparison
+  const curRow = (!tA || !tB) ? '' : (() => {
+    const curA = tA.current, curB = tB.current;
+    const colA = curA.type==='V'?'#16a34a':curA.type==='D'?'#dc2626':'#d97706';
+    const colB = curB.type==='V'?'#16a34a':curB.type==='D'?'#dc2626':'#d97706';
+    return `
+      <div style="background:#091420;border:1px solid #1e3a5f;border-radius:10px;padding:14px;margin-bottom:14px">
+        <div style="font-size:10px;color:#475569;letter-spacing:1.5px;text-transform:uppercase;text-align:center;margin-bottom:10px">
+          ⚡ Sequência Atual
+        </div>
+        <div style="display:flex;justify-content:space-around;align-items:center">
+          <div style="text-align:center">
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px">${tA.name}</div>
+            <span style="background:${colA};color:#fff;border-radius:8px;padding:6px 16px;font-size:22px;font-weight:900">${curA.count}${curA.type}</span>
+          </div>
+          <div style="font-size:20px;color:#1e3a5f">⚔️</div>
+          <div style="text-align:center">
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px">${tB.name}</div>
+            <span style="background:${colB};color:#fff;border-radius:8px;padding:6px 16px;font-size:22px;font-weight:900">${curB.count}${curB.type}</span>
+          </div>
+        </div>
+      </div>`;
+  })();
+
+  // recent 5 games side by side
+  const recentRow = (!tA || !tB) ? '' : `
+    <div style="background:#091420;border:1px solid #1e3a5f;border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="font-size:10px;color:#475569;letter-spacing:1.5px;text-transform:uppercase;text-align:center;margin-bottom:10px">
+        🕐 Últimos 5 jogos
+      </div>
+      <div style="display:flex;justify-content:space-around;align-items:center;gap:12px">
+        <div style="display:flex;gap:3px">${tA.games.slice(0,5).map(g=>dot(g)).join('')}</div>
+        <div style="color:#1e3a5f;font-size:16px">vs</div>
+        <div style="display:flex;gap:3px">${tB.games.slice(0,5).map(g=>dot(g)).join('')}</div>
+      </div>
+    </div>`;
+
+  // ── H2H ─────────────────────────────────────────────────────────────────────
+  const h2hGames = (!tA || !tB) ? [] : state.schedule
+    .filter(g =>
+      (g.casa === tA.name && g.fora === tB.name) ||
+      (g.casa === tB.name && g.fora === tA.name)
+    )
+    .sort((a,b) => {
+      if (a.dataTs != null && b.dataTs != null) return b.dataTs - a.dataTs;
+      if (a.dataTs != null) return -1;
+      if (b.dataTs != null) return 1;
+      return (a.seq ?? 0) - (b.seq ?? 0);
+    });
+
+  const h2hStats = (() => {
+    if (!tA || !tB || h2hGames.length === 0) return null;
+    let wA=0, wB=0, draws=0, gfA=0, gfB=0;
+    for (const g of h2hGames) {
+      const goalsA = g.casa === tA.name ? g.golsCasa : g.golsFora;
+      const goalsB = g.casa === tB.name ? g.golsCasa : g.golsFora;
+      gfA += goalsA; gfB += goalsB;
+      if (goalsA > goalsB) wA++;
+      else if (goalsB > goalsA) wB++;
+      else draws++;
+    }
+    return { wA, wB, draws, gfA, gfB, total: h2hGames.length };
+  })();
+
+  const h2hBlock = (!tA || !tB) ? '' : h2hGames.length === 0
+    ? `<div style="background:#0a1624;border:1px solid #1e293b;border-radius:12px;
+                   padding:20px;text-align:center;color:#334155;font-size:12px;margin-bottom:14px">
+         ⚔️ Nenhum confronto direto encontrado na planilha
+       </div>`
+    : `<div style="background:#0a1624;border:1px solid #1e293b;border-radius:12px;
+                   overflow:hidden;margin-bottom:14px">
+
+        <!-- header -->
+        <div style="padding:10px 14px;background:#111f30;display:flex;align-items:center;
+                    gap:8px;border-bottom:1px solid #1e293b">
+          <span style="font-size:15px">⚔️</span>
+          <span style="font-size:12px;font-weight:800;color:#f0f9ff">Confrontos Diretos</span>
+          <span style="margin-left:auto;background:#1e3a5f;color:#7dd3fc;border-radius:5px;
+                       padding:1px 8px;font-size:11px;font-weight:700">${h2hGames.length} jogos</span>
+        </div>
+
+        <!-- placar geral -->
+        <div style="padding:14px;border-bottom:1px solid #0a1421">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+
+            <!-- Time A -->
+            <div style="flex:1;text-align:center">
+              <div style="font-size:11px;color:#64748b;margin-bottom:4px;white-space:nowrap;
+                          overflow:hidden;text-overflow:ellipsis">${tA.name}</div>
+              <div style="font-size:32px;font-weight:900;
+                color:${h2hStats.wA>h2hStats.wB?'#4ade80':h2hStats.wA<h2hStats.wB?'#f87171':'#f59e0b'}">
+                ${h2hStats.wA}
+              </div>
+              <div style="font-size:10px;color:#475569">${h2hStats.gfA} gols</div>
+            </div>
+
+            <!-- centro -->
+            <div style="text-align:center;flex-shrink:0">
+              <div style="font-size:24px;font-weight:900;color:#d97706">${h2hStats.draws}</div>
+              <div style="font-size:10px;color:#475569">empates</div>
+            </div>
+
+            <!-- Time B -->
+            <div style="flex:1;text-align:center">
+              <div style="font-size:11px;color:#64748b;margin-bottom:4px;white-space:nowrap;
+                          overflow:hidden;text-overflow:ellipsis">${tB.name}</div>
+              <div style="font-size:32px;font-weight:900;
+                color:${h2hStats.wB>h2hStats.wA?'#4ade80':h2hStats.wB<h2hStats.wA?'#f87171':'#f59e0b'}">
+                ${h2hStats.wB}
+              </div>
+              <div style="font-size:10px;color:#475569">${h2hStats.gfB} gols</div>
+            </div>
+          </div>
+
+          <!-- barra de domínio -->
+          ${(() => {
+            const tot = h2hStats.wA + h2hStats.wB + h2hStats.draws || 1;
+            const pA = Math.round((h2hStats.wA/tot)*100);
+            const pD = Math.round((h2hStats.draws/tot)*100);
+            const pB = 100 - pA - pD;
+            return `<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;margin-top:12px;gap:1px">
+              <div style="width:${pA}%;background:#16a34a;border-radius:3px 0 0 3px"></div>
+              <div style="width:${pD}%;background:#d97706"></div>
+              <div style="width:${pB}%;background:#dc2626;border-radius:0 3px 3px 0"></div>
+            </div>`;
+          })()}
+        </div>
+
+        <!-- lista de jogos -->
+        <div style="max-height:320px;overflow-y:auto;-webkit-overflow-scrolling:touch">
+          ${h2hGames.map((g,i) => {
+            const hora = g.hora != null
+              ? String(g.hora).padStart(2,'0')+':'+String(g.minuto??0).padStart(2,'0')
+              : 'R'+g.rodada;
+            const goalsA = g.casa === tA.name ? g.golsCasa : g.golsFora;
+            const goalsB = g.casa === tB.name ? g.golsCasa : g.golsFora;
+            const winner = goalsA > goalsB ? 'A' : goalsB > goalsA ? 'B' : 'D';
+            const colA = winner==='A'?'#16a34a':winner==='D'?'#d97706':'#475569';
+            const colB = winner==='B'?'#16a34a':winner==='D'?'#d97706':'#475569';
+            const isCasaA = g.casa === tA.name;
+            return `
+            <div style="padding:8px 14px;border-bottom:1px solid #0a1421;
+                        background:${i%2===0?'transparent':'#070f1b'};
+                        display:flex;align-items:center;gap:8px">
+              <span style="font-size:10px;color:#4a7aa7;flex-shrink:0;min-width:34px;font-weight:700">${hora}</span>
+              <span style="flex:1;font-size:11px;font-weight:700;color:${colA};
+                           text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                ${tA.name} ${isCasaA?'🏠':'✈️'}
+              </span>
+              <span style="background:#1e293b;color:#e2e8f0;border-radius:5px;padding:2px 8px;
+                           font-weight:900;font-size:13px;flex-shrink:0;letter-spacing:1px">
+                ${goalsA}–${goalsB}
+              </span>
+              <span style="flex:1;font-size:11px;font-weight:700;color:${colB};
+                           white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                ${!isCasaA?'🏠':'✈️'} ${tB.name}
+              </span>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+
+  return `
+    <div style="display:flex;gap:10px;margin-bottom:16px">
+      ${selector('Time A', state.compareA, 'compareA')}
+      <div style="display:flex;align-items:flex-end;padding-bottom:8px;color:#1e3a5f;font-size:20px">⚔️</div>
+      ${selector('Time B', state.compareB, 'compareB')}
+    </div>
+
+    ${!tA || !tB ? `
+      <div style="background:#0a1624;border:1px dashed #1e293b;border-radius:12px;padding:40px;
+                  text-align:center;color:#1e3a5f;font-size:13px">
+        Selecione dois times para comparar
+      </div>` : `
+      ${curRow}
+      ${recentRow}
+      ${h2hBlock}
+      <div style="background:#0a1624;border:1px solid #1e293b;border-radius:12px;overflow:hidden">
+        <div style="padding:10px 14px;background:#111f30;display:flex;justify-content:space-between;
+                    font-size:11px;font-weight:800;color:#f0f9ff;border-bottom:1px solid #1e293b">
+          <span style="flex:1;text-align:right">${tA.name}</span>
+          <span style="width:20px"></span>
+          <span style="flex:1">${tB.name}</span>
+        </div>
+        ${metricRows}
+      </div>`}
+  `;
+}
+
+function renderRankings(teams) {
+  if (!teams || teams.length === 0) return '<div style="padding:40px;text-align:center;color:#334155">Importe uma planilha para ver os rankings.</div>';
+
+  const categories = [
+    { key:'maxWin',      icon:'🏆', label:'Vitórias consecutivas',         color:'#16a34a' },
+    { key:'maxUnbeaten', icon:'🛡️', label:'Jogos invicto',                 color:'#2563eb' },
+    { key:'maxLoss',     icon:'💔', label:'Derrotas consecutivas',         color:'#dc2626' },
+    { key:'maxNoWin',    icon:'⚠️', label:'Jogos sem vencer',              color:'#d97706' },
+    { key:'maxDraw',     icon:'🤝', label:'Empates consecutivos',          color:'#8b5cf6' },
+    { key:'maxHomeWin',  icon:'🏠🏆',label:'Vitórias seguidas em casa',    color:'#16a34a' },
+    { key:'maxHomeLoss', icon:'🏠💔',label:'Derrotas seguidas em casa',    color:'#dc2626' },
+    { key:'maxHomeUnb',  icon:'🏠🛡️',label:'Invicto em casa',             color:'#2563eb' },
+    { key:'maxHomeNoW',  icon:'🏠⚠️',label:'Sem vencer em casa',          color:'#d97706' },
+    { key:'maxAwayWin',  icon:'✈️🏆',label:'Vitórias seguidas fora',         color:'#16a34a' },
+    { key:'maxAwayLoss', icon:'✈️💔',label:'Derrotas seguidas fora',         color:'#dc2626' },
+    { key:'maxAwayUnb',  icon:'✈️🛡️',label:'Invicto fora',                  color:'#2563eb' },
+    { key:'maxAwayNoW',  icon:'✈️⚠️',label:'Sem vencer fora',               color:'#d97706' },
+    { key:'maxBttsYes',  icon:'⚽⚽', label:'Ambas marcam – geral',          color:'#10b981' },
+    { key:'maxBttsNo',   icon:'🚫⚽', label:'Ambas NÃO marcam – geral',     color:'#6366f1' },
+    { key:'maxHomeBttsY',icon:'🏠⚽', label:'Ambas marcam – em casa',       color:'#10b981' },
+    { key:'maxHomeBttsN',icon:'🏠🚫', label:'Ambas NÃO marcam – em casa',  color:'#6366f1' },
+    { key:'maxAwayBttsY',icon:'✈️⚽', label:'Ambas marcam – fora',          color:'#10b981' },
+    { key:'maxAwayBttsN',icon:'✈️🚫', label:'Ambas NÃO marcam – fora',     color:'#6366f1' },
+  ];
+
+  return categories.map(cat => {
+    // sort all teams by this streak desc, take top 10
+    const ranked = [...teams]
+      .filter(t => t[cat.key] && t[cat.key].count > 0)
+      .sort((a,b) => b[cat.key].count - a[cat.key].count)
+      .slice(0, 10);
+
+    if (ranked.length === 0) return '';
+
+    const maxCount = ranked[0][cat.key].count;
+
+    const rows = ranked.map((t, i) => {
+      const streak = t[cat.key];
+      const barPct = Math.round((streak.count / maxCount) * 100);
+      const medals = ['🥇','🥈','🥉'];
+      const medal = i < 3 ? medals[i] : `<span style="color:#475569;font-size:11px">${i+1}</span>`;
+      return `
+        <div style="padding:8px 14px;border-bottom:1px solid #0a1421;cursor:pointer"
+             onclick="setState({selected:'${t.name.replace(/'/g,"\'")}',tab:'times',showDetail:true})">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="width:22px;text-align:center;flex-shrink:0">${medal}</span>
+            <span style="font-weight:700;font-size:13px;color:#cbd5e1;flex:1">${t.name}</span>
+            <span style="font-size:18px;font-weight:900;color:${cat.color};min-width:28px;text-align:right">${streak.count}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding-left:30px">
+            <div style="flex:1;height:4px;background:#0a1421;border-radius:2px;overflow:hidden">
+              <div style="width:${barPct}%;height:100%;background:${cat.color};border-radius:2px;opacity:0.7"></div>
+            </div>
+            <div style="display:flex;gap:2px">${dots(streak.games.slice(0,12))}</div>
+          </div>
+        </div>`;
+    }).join('');
+
+    return `
+      <div style="background:#0a1624;border:1px solid #1e293b;border-radius:12px;overflow:hidden;margin-bottom:14px">
+        <div style="padding:10px 14px;background:#111f30;display:flex;align-items:center;gap:8px;border-bottom:1px solid #1e293b">
+          <span style="font-size:16px">${cat.icon}</span>
+          <span style="font-size:12px;font-weight:800;color:#f0f9ff;letter-spacing:0.5px">${cat.label}</span>
+          <span style="margin-left:auto;font-size:10px;color:#475569">Recorde: ${maxCount}</span>
+        </div>
+        ${rows}
+      </div>`;
+  }).join('');
 }
 
 // ── state ─────────────────────────────────────────────────────────────────────
@@ -308,7 +988,9 @@ let state = {
   tab: 'times',
   search: '',
   showHelp: false,
-  showDetail: false, // mobile: show detail panel
+  showDetail: false,
+  compareA: null,
+  compareB: null, // mobile: show detail panel
 };
 
 let teams = [];
@@ -321,17 +1003,47 @@ recompute();
 
 function setState(patch) {
   Object.assign(state, patch);
-  if (patch.schedule !== undefined) recompute();
+  recompute();
   render();
 }
 
 // ── render helpers ────────────────────────────────────────────────────────────
+// tooltip global
+let tipEl = null;
+function showTip(el, text) {
+  hideTip();
+  tipEl = document.createElement('div');
+  tipEl.className = 'dot-tip';
+  tipEl.textContent = text;
+  document.body.appendChild(tipEl);
+  const rect = el.getBoundingClientRect();
+  const tw = Math.min(tipEl.offsetWidth, 200);
+  let left = rect.left + rect.width / 2;
+  let top  = rect.top - tipEl.offsetHeight - 8 + window.scrollY;
+  // keep inside screen
+  left = Math.max(tw/2 + 6, Math.min(window.innerWidth - tw/2 - 6, left));
+  if (top < window.scrollY + 6) top = rect.bottom + 8 + window.scrollY;
+  tipEl.style.left = left + 'px';
+  tipEl.style.top  = top + 'px';
+}
+function hideTip() {
+  if (tipEl) { tipEl.remove(); tipEl = null; }
+}
+document.addEventListener('click', hideTip);
+document.addEventListener('scroll', hideTip, true);
+
 function dot(g) {
   const label = g.hora != null
     ? String(g.hora).padStart(2,'0')+':'+String(g.minuto??0).padStart(2,'0')
     : 'R'+g.rodada;
-  const title = `${label} ${g.isHome?'Casa':'Fora'} ${g.gols}-${g.golsAdv}`;
-  return `<span class="dot dot-${g.result} ${g.isHome?'dot-home':'dot-away'}" title="${title}">${g.isHome?'C':'F'}</span>`;
+  const adv = g.isHome ? '' : ' (fora)';
+  const tip = `${label}  ${g.gols}–${g.golsAdv}  ${g.isHome?'🏠 Casa':'✈️ Fora'}`;
+  const esc = tip.replace(/'/g, "\'");
+  return `<span class="dot dot-${g.result} ${g.isHome?'dot-home':'dot-away'}"
+    onmouseenter="showTip(this,'${esc}')"
+    onmouseleave="hideTip()"
+    ontouchstart="showTip(this,'${esc}');event.stopPropagation()"
+  >${g.isHome?'C':'F'}</span>`;
 }
 
 function dots(games) {
@@ -410,6 +1122,25 @@ function teamDetail(data) {
         statRow('🛡️','Jogos sem derrota',data.maxAwayUnb),
         statRow('⚠️','Jogos sem vencer',data.maxAwayNoW),
       ])}
+      ${section('⚽⚽ Ambas Marcam (BTTS)',[
+        statRow('✅','Ambas marcam – geral',data.maxBttsYes),
+        statRow('❌','Ambas NÃO marcam – geral',data.maxBttsNo),
+        statRow('🏠✅','Ambas marcam – em casa',data.maxHomeBttsY),
+        statRow('🏠❌','Ambas NÃO marcam – em casa',data.maxHomeBttsN),
+        statRow('✈️✅','Ambas marcam – fora',data.maxAwayBttsY),
+        statRow('✈️❌','Ambas NÃO marcam – fora',data.maxAwayBttsN),
+      ])}
+      ${section('📊 Totais de Gols',[
+        statRow('🔺','Over 2.5 – geral',data.maxOver25),
+        statRow('🔺','Over 3.5 – geral',data.maxOver35),
+        statRow('🔻','Under 2.5 – geral',data.maxUnder25),
+        statRow('🏠🔺','Over 2.5 – em casa',data.maxHomeOver25),
+        statRow('🏠🔺','Over 3.5 – em casa',data.maxHomeOver35),
+        statRow('🏠🔻','Under 2.5 – em casa',data.maxHomeUnder25),
+        statRow('✈️🔺','Over 2.5 – fora',data.maxAwayOver25),
+        statRow('✈️🔺','Over 3.5 – fora',data.maxAwayOver35),
+        statRow('✈️🔻','Under 2.5 – fora',data.maxAwayUnder25),
+      ])}
     </div>`;
 }
 
@@ -454,10 +1185,9 @@ function renderApp() {
       <button onclick="downloadTemplate()"
         style="background:#0a1624;border:1px solid #1e3a5f;border-radius:8px;padding:6px 10px;
                font-size:11px;color:#64748b;font-weight:700">📥</button>
-      <label style="background:#0e3056;border:1px solid #2563eb;border-radius:8px;padding:6px 10px;
-                    font-size:11px;color:#93c5fd;font-weight:700;display:flex;align-items:center;gap:4px">
+      <label for="fileInput" style="background:#0e3056;border:1px solid #2563eb;border-radius:8px;padding:6px 10px;
+                    font-size:11px;color:#93c5fd;font-weight:700;display:flex;align-items:center;gap:4px;cursor:pointer">
         📤 <span class="hide-mobile">Importar</span>
-        <input type="file" accept=".xlsx,.xlsm,.xls" onchange="handleFile(event)" style="display:none">
       </label>
       <button onclick="openDrivePicker()"
         style="background:#1a3a1a;border:1px solid #16a34a;border-radius:8px;padding:6px 10px;
@@ -486,8 +1216,27 @@ function renderApp() {
     <!-- tabs -->
     <div style="display:flex;gap:4px;margin-bottom:14px">
       <button class="tab-btn ${state.tab==='times'?'active':'inactive'}" onclick="setState({tab:'times'})">📊 Times</button>
+      <button class="tab-btn ${state.tab==='rankings'?'active':'inactive'}" onclick="setState({tab:'rankings'})">🏅 Rankings</button>
+      <button class="tab-btn ${state.tab==='compare'?'active':'inactive'}" onclick="setState({tab:'compare'})">⚔️ Comparar</button>
+      <button class="tab-btn ${state.tab==='btts'?'active':'inactive'}" onclick="setState({tab:'btts'})">⚽ BTTS</button>
+      <button class="tab-btn ${state.tab==='alertas'?'active':'inactive'}" onclick="setState({tab:'alertas'})" style="position:relative">
+        🚨 Alertas
+        ${(()=>{const count=calcAlerts(teams).length;return count>0?`<span style="position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;border-radius:10px;padding:1px 5px;font-size:9px;font-weight:900">${count}</span>`:'';})()}
+      </button>
       <button class="tab-btn ${state.tab==='tabela'?'active':'inactive'}" onclick="setState({tab:'tabela'})">🗓️ Tabela</button>
     </div>
+
+    <!-- aba alertas -->
+    ${state.tab === 'alertas' ? renderAlertas(teams) : ''}
+
+    <!-- aba btts global -->
+    ${state.tab === 'btts' ? renderGlobalBtts() : ''}
+
+    <!-- aba compare -->
+    ${state.tab === 'compare' ? renderCompare() : ''}
+
+    <!-- aba rankings -->
+    ${state.tab === 'rankings' ? renderRankings(teams) : ''}
 
     <!-- aba tabela -->
     ${state.tab === 'tabela' ? `
@@ -557,16 +1306,19 @@ function renderApp() {
             const active = state.selected === t.name;
             return `
             <div class="team-row ${active?'active':''}"
-              onclick="setState({selected:'${t.name.replace(/'/g,"\\'")}',showDetail:true})">
-              <div style="display:flex;gap:8px;align-items:center">
-                <span style="color:#1e3a5f;font-size:11px;width:18px;text-align:right">${i+1}</span>
-                <span style="font-weight:700;font-size:13px;color:${active?'#7dd3fc':'#cbd5e1'}">${t.name}</span>
+              onclick="setState({selected:'${t.name.replace(/'/g,"\\'")}',showDetail:true,tab:'times'})">
+              <div style="display:flex;gap:8px;align-items:center;min-width:0">
+                <span style="color:#1e3a5f;font-size:11px;width:18px;text-align:right;flex-shrink:0">${i+1}</span>
+                <div style="min-width:0">
+                  <div style="font-weight:700;font-size:13px;color:${active?'#7dd3fc':'#cbd5e1'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.name}</div>
+                  <div style="display:flex;gap:2px;margin-top:3px">
+                    ${t.games.slice(0,5).map(g=>{const c=g.result==='V'?'#16a34a':g.result==='D'?'#dc2626':'#d97706';return `<span style="width:10px;height:10px;border-radius:2px;background:${c};display:inline-block"></span>`;}).join('')}
+                  </div>
+                </div>
               </div>
-              <div style="display:flex;gap:6px;align-items:center;font-size:11px">
-                <span style="color:#22c55e">${t.w}</span>
-                <span style="color:#f59e0b">${t.d}</span>
-                <span style="color:#ef4444">${t.l}</span>
-                <span style="background:#0e2236;color:#7dd3fc;border-radius:5px;padding:1px 7px;font-weight:800">${t.pts}</span>
+              <div style="display:flex;gap:5px;align-items:center;flex-shrink:0">
+                ${(()=>{const cur=t.current;const cc=cur.type==='V'?'#16a34a':cur.type==='D'?'#dc2626':'#d97706';return `<span style="background:${cc};color:#fff;border-radius:5px;padding:2px 7px;font-weight:800;font-size:12px">${cur.count}${cur.type}</span>`;})()}
+                <span style="background:#0e2236;color:#7dd3fc;border-radius:5px;padding:2px 7px;font-weight:800;font-size:11px">${t.pts}</span>
               </div>
             </div>`;
           }).join('')}
@@ -646,21 +1398,32 @@ function render() {
 async function handleFile(event) {
   const file = event.target.files[0];
   if (!file) return;
-  event.target.value = '';
-  setState({ importing: true, importErr: '', importOk: '' });
+  state.importing = true;
+  state.importErr = '';
+  state.importOk  = '';
+  render();
   try {
-    const { games, format } = await parseXlsx(file);
-    setState({
-      schedule: games,
-      fileName: file.name,
-      selected: null,
-      search: '',
-      importing: false,
-      importOk: `✅ ${games.length} jogos importados! (${format === 'tabular' ? 'tabular' : 'legado'})`,
-    });
-    setTimeout(() => setState({ importOk: '' }), 5000);
+    const arrayBuffer = await file.arrayBuffer();
+    const data = new Uint8Array(arrayBuffer);
+    const wb   = XLSX.read(data, { type: 'array' });
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+    const { type, headerRow } = detectFormat(rows);
+    const games = type === 'tabular' ? parseTabular(rows, headerRow) : parseLegacy(rows);
+    if (!games || games.length === 0) throw new Error('Nenhum jogo encontrado. Verifique o formato.');
+    state.schedule  = games;
+    state.fileName  = file.name;
+    state.selected  = null;
+    state.search    = '';
+    state.importing = false;
+    state.importOk  = `✅ ${games.length} jogos importados! (${type === 'tabular' ? 'tabular' : 'legado'})`;
+    recompute();
+    render();
+    setTimeout(() => { state.importOk = ''; render(); }, 5000);
   } catch (err) {
-    setState({ importing: false, importErr: err.message || 'Erro ao importar.' });
+    state.importing = false;
+    state.importErr = err.message || 'Erro ao importar.';
+    render();
   }
 }
 
@@ -782,5 +1545,14 @@ window.addEventListener('load', () => {
 window.addEventListener('resize', render);
 render();
 </script>
+  <!-- static file input outside render loop -->
+  <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls" style="display:none">
+  <script>
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+      handleFile(e);
+      // reset so same file can be re-imported
+      setTimeout(() => { this.value = ''; }, 500);
+    });
+  </script>
 </body>
 </html>
